@@ -1,8 +1,0 @@
-example_node_params:
-  ros__parameters:
-    kp: 0.4
-    vmax: 0.09
-    w: 0.1
-    w_emergencia: 0.08
-    vmax_emergencia: 0.05
-    type: 1
