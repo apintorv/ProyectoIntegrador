@@ -21,12 +21,12 @@ class Control_Node(Node):
         self.create_subscription(Pose, '/pose', self.position_callback, qos_profile)
            
         # Referencias deseadas
-        self.qd = np.array([[0.1, 0.1]]).T
-        self.q0 = np.array([[0.1, 0.1]]).T
+        self.qd = np.array([[0.1, 0.0]]).T
+        self.q0 = np.array([[0.1, 0.0]]).T
         self.thetha = 0.0
         
         # Parámetros del control
-        self.k = 1.0   # Ganancia del controlador
+        self.k = 0.1   # Ganancia del controlador
         self.h = 0.05   # Parámetro de transformación (debe ser diferente de 0)
         
         self.timer = self.create_timer(0.001, self.timer_callback)
