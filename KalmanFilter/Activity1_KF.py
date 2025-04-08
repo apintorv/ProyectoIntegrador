@@ -1,59 +1,43 @@
-import numpy as np 
-import matplotlib.pyplot as plt
+import numpy as np
 
-# Configurar parámetros del sistema
-dt = 1.0
-F = np.array([[1, dt],
-              [0, 1]])              # Modelo dinámico
-H = np.array([[1, 0]])              # Observamos solo la posición
-Q = np.array([[0.01, 0],
-              [0, 0.1]])            # Ruido del proceso
-R = np.array([[0.5]])               # Ruido de medición (solo posición)
+# Paso 1: Predicción del estado
+A = np.array([[1, 0.5],
+              [0, 1]])
+B = np.array([[0],
+              [0.5]])
+u = -2
+x_prev = np.array([[2.47],
+                   [1.19]])
 
-# Inicialización
-x_est = np.array([[2], [5]])        # Estimación inicial del estado
-P = np.array([[0.01, 0],
-              [0, 1]])              # Covarianza inicial
+x_pred = A @ x_prev + B * u  # x̂_k|k-1
 
-# Verdadero estado inicial y mediciones simuladas
-x_true = x_est.copy()
-num_steps = 20
-true_states = []
-measurements = []
-estimates = []
-covariances = []
+# Paso 2: Predicción de la covarianza
+P_prev = np.array([[0.04, 0.06],
+                   [0.06, 0.49]])
+Q = np.array([[0.1, 0],
+              [0, 0.1]])
 
-np.random.seed(42)  # Para reproducibilidad
+P_pred = A @ P_prev @ A.T + Q  # P̌_k
 
-for k in range(num_steps):
-    # Simular el sistema verdadero
-    w = np.random.multivariate_normal([0, 0], Q).reshape(-1, 1)
-    x_true = F @ x_true + w
-    true_states.append(x_true.flatten())
+# Paso 3: Ganancia de Kalman
+H = np.array([[1, 0]])
+R = np.array([[0.05]])
 
-    # Simular medición (solo posición)
-    v = np.random.normal(0, np.sqrt(R[0, 0]))
-    z = H @ x_true + v
-    measurements.append(z.item())
+S = H @ P_pred @ H.T + R
+K = P_pred @ H.T @ np.linalg.inv(S)  # K_k
 
-    # --- Filtro de Kalman ---
-    # Predicción
-    x_pred = F @ x_est
-    P_pred = F @ P @ F.T + Q
+# Paso 4: Actualización del estado
+z = np.array([[2.3]])
+y = z - H @ x_pred  
+x_hat = x_pred + K @ y  # x̂_k
 
-    # Actualización
-    y = z - H @ x_pred                          # residual
-    S = H @ P_pred @ H.T + R                    # innovación
-    K = P_pred @ H.T @ np.linalg.inv(S)         # ganancia de Kalman
-    x_est = x_pred + K @ y                      # estimación corregida
-    P = (np.eye(2) - K @ H) @ P_pred            # covarianza actualizada
+# Paso 5: Actualización de la covarianza
+I = np.eye(2)
+P_hat = (I - K @ H) @ P_pred  # P̂_k
 
-    estimates.append(x_est.flatten())
-    covariances.append(P)
+# Resultados
+print("Estado estimado (x̂):")
+print(x_hat)
 
-# Imprimir resultados finales
-print("Estimación final del estado (media):")
-print(x_est)
-
-print("\nCovarianza final del estado:")
-print(P)
+print("\nCovarianza estimada (P̂):")
+print(P_hat)
