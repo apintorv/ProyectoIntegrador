@@ -1,6 +1,6 @@
 import rclpy
 from rclpy.node import Node
-from geometry_msgs.msg import Twist, Pose
+from geometry_msgs.msg import Twist, Pose, Vector3
 import numpy as np
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy, QoSDurabilityPolicy
 
@@ -19,9 +19,9 @@ class Control_Node(Node):
         
         self.publisher = self.create_publisher(Twist, "/cmd_vel", 10)
         self.create_subscription(Pose, '/pose', self.position_callback, qos_profile)
+        self.create_subscription(Vector3, '/qd', self.desired_position_callback, qos_profile)
            
         # Referencias deseadas
-        self.qd = np.array([[0.1, 0.0]]).T
         self.q0 = np.array([[0.1, 0.0]]).T
         self.thetha = 0.0
         
@@ -36,6 +36,9 @@ class Control_Node(Node):
         self.q0 = np.array([[msg.position.x, msg.position.y]]).T
         self.thetha = msg.orientation.w
         
+    def desired_position_callback(self, msg):
+        self.get_logger().info(f'Desired Position: x:{msg.x}, y:{msg.y}, z:{msg.w}')
+        self.qd = np.array([[msg.x, msg.y]]).T        
         
     def timer_callback(self):
         matrix_D = np.array([

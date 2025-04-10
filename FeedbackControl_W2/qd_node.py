@@ -15,7 +15,7 @@ class qd_Node(Node):
         
     def timer_callback(self):
         qd = Vector3()
-        self.qd = np.array([[0.0, 0.0]]) 
+        self.qd = np.array([0.0, 0.0, 0.0]) 
         
         qd.x = self.qd[0]
         qd.y = self.qd[1]

@@ -9,6 +9,7 @@ class Position_Node(Node):
         super().__init__('Position_Node')
         self.get_logger().info("Start position node")
 
+        ##suscribirse al nodo del robot que da los sensores 
         self.subscriber = self.create_subscription(Twist, "/cmd_vel", self.callback, 10)
         self.velPublisher = self.create_publisher(Pose, "/pose", 10)
               
