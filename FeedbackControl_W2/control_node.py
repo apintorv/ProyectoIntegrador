@@ -3,6 +3,7 @@ from rclpy.node import Node
 from geometry_msgs.msg import Twist, Pose, Vector3
 import numpy as np
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy, QoSDurabilityPolicy
+from tf_transformations import euler_from_quaternion
 
 class Control_Node(Node):
     def __init__(self):
@@ -21,6 +22,7 @@ class Control_Node(Node):
         self.create_subscription(Pose, '/pose', self.position_callback, qos_profile)
         self.create_subscription(Vector3, '/qd', self.desired_position_callback, qos_profile)
            
+        self.qd = np.array([[0.0, 0.0]]).T
         # Referencias deseadas
         self.q0 = np.array([[0.1, 0.0]]).T
         self.thetha = 0.0
@@ -32,13 +34,16 @@ class Control_Node(Node):
         self.timer = self.create_timer(0.001, self.timer_callback)
         
     def position_callback(self, msg):
+        orientation_q = msg.orientation
+        quaternion = [orientation_q.x, orientation_q.y, orientation_q.z, orientation_q.w]
+        _, _, theta = euler_from_quaternion(quaternion)
         self.get_logger().info(f'Actual Position: x:{msg.position.x}, y:{msg.position.y}, z:{msg.orientation.w}')
         self.q0 = np.array([[msg.position.x, msg.position.y]]).T
-        self.thetha = msg.orientation.w
+        self.thetha = theta
         
     def desired_position_callback(self, msg):
         self.get_logger().info(f'Desired Position: x:{msg.x}, y:{msg.y}, z:{msg.w}')
-        self.qd = np.array([[msg.x, msg.y]]).T        
+        self.qd = np.array([[msg.x, msg.y]]).T      ##REVISAR CON NACHO     
         
     def timer_callback(self):
         matrix_D = np.array([
@@ -49,7 +54,8 @@ class Control_Node(Node):
         e = self.q0 - self.qd 
         aux = -self.k * e
         
-        U = np.linalg.inv(matrix_D) @ aux
+        if np.linalg.det(matrix_D) != 0:
+            U = np.linalg.inv(matrix_D) @ aux
          
         self.twist.linear.x = U[0][0]
         self.twist.angular.z = U[1][0]
