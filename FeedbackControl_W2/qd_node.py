@@ -13,16 +13,15 @@ class qd_Node(Node):
         
         self.timer = self.create_timer(0.001, self.timer_callback)
         
+        self.qd = Vector3()
+        
+        self.qd.x = 0.0
+        self.qd.y = 0.0
+        self.qd.z = 0.0
+        
     def timer_callback(self):
-        qd = Vector3()
-        
-        qd.x = 0.0
-        qd.y = 0.0
-        qd.z = 0.0
-
-        self.get_logger().info(f'qd x={qd.x}, y={qd.y}, z={qd.z}')
-        
-        self.publisher.publish(qd)
+        self.get_logger().info(f'qd x={self.qd.x}, y={self.qd.y}, z={self.qd.z}')        
+        self.publisher.publish(self.qd)
 
 def main(args=None):
     rclpy.init(args=args)
