@@ -3,7 +3,6 @@ from rclpy.node import Node
 from geometry_msgs.msg import Twist, Pose, Vector3
 import numpy as np
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy, QoSDurabilityPolicy
-from tf_transformations import euler_from_quaternion
 
 class Control_Node(Node):
     def __init__(self):
@@ -34,12 +33,9 @@ class Control_Node(Node):
         self.timer = self.create_timer(0.001, self.timer_callback)
         
     def position_callback(self, msg):
-        orientation_q = msg.orientation
-        quaternion = [orientation_q.x, orientation_q.y, orientation_q.z, orientation_q.w]
-        _, _, theta = euler_from_quaternion(quaternion)
         self.get_logger().info(f'Actual Position: x:{msg.position.x}, y:{msg.position.y}, z:{msg.orientation.w}')
         self.q0 = np.array([[msg.position.x, msg.position.y]]).T
-        self.thetha = theta
+        self.thetha = msg.orientation
         
     def desired_position_callback(self, msg):
         self.get_logger().info(f'Desired Position: x:{msg.x}, y:{msg.y}, z:{msg.w}')

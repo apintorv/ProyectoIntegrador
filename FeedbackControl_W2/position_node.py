@@ -3,7 +3,6 @@ from rclpy.node import Node
 from geometry_msgs.msg import Twist, Pose
 import numpy as np
 import math
-from tf_transformations import quaternion_from_euler
 
 class Position_Node(Node):
     def __init__(self):
@@ -21,6 +20,7 @@ class Position_Node(Node):
         
         self.pose = Pose()
         
+        self.last_time = self.get_clock().now()
         self.timer = self.create_timer(0.001, self.timer_callback)
 
     def timer_callback(self):
