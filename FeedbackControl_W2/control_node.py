@@ -43,7 +43,7 @@ class Control_Node(Node):
         
     def desired_position_callback(self, msg):
         self.get_logger().info(f'Desired Position: x:{msg.x}, y:{msg.y}, z:{msg.w}')
-        self.qd = np.array([[msg.x, msg.y]]).T      ##REVISAR CON NACHO     
+        self.qd = np.array([[msg.x, msg.y]]).T          
         
     def timer_callback(self):
         matrix_D = np.array([
