@@ -33,9 +33,9 @@ class Control_Node(Node):
         self.timer = self.create_timer(0.001, self.timer_callback)
         
     def position_callback(self, msg):
-        self.get_logger().info(f'Actual Position: x:{msg.position.x}, y:{msg.position.y}, z:{msg.orientation.w}')
+        self.get_logger().info(f'Actual Position: x:{msg.position.x}, y:{msg.position.y}, z:{msg.position.z}')
         self.q0 = np.array([[msg.position.x, msg.position.y]]).T
-        self.thetha = msg.orientation
+        self.thetha = msg.position.z
         
     def desired_position_callback(self, msg):
         self.get_logger().info(f'Desired Position: x:{msg.x}, y:{msg.y}, z:{msg.w}')
