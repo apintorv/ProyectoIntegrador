@@ -10,12 +10,12 @@ class Position_Node(Node):
         self.get_logger().info("Start position node")
 
         ##suscribirse al nodo del robot que da los sensores 
-        self.subscriber = self.create_subscription(Twist, "/vel_raw", self.callback, 10)
-        self.velPublisher = self.create_publisher(Pose, "/pose", 10)
+        self.subscriber = self.create_subscription(Twist, "/vel_raw", self.callback, 1)
+        self.velPublisher = self.create_publisher(Pose, "/pose", 1)
               
         self.q = np.array([[0, 0, 0]]).T  # Vector de estados q = [x,y,theta]
         
-        self.tao = 0.001
+        self.tao = 0.01
         self.h = 0.05
         
         self.pose = Pose()
@@ -31,7 +31,7 @@ class Position_Node(Node):
         # Position
         self.pose.position.x = x
         self.pose.position.y = y
-
+        self.pose.position.z = theta
         self.velPublisher.publish(self.pose)
 
         self.get_logger().info(

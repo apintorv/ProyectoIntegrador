@@ -12,25 +12,25 @@ class Control_Node(Node):
         qos_profile = QoSProfile(
             reliability = QoSReliabilityPolicy.RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT,
             history = QoSHistoryPolicy.RMW_QOS_POLICY_HISTORY_KEEP_LAST,
-            depth = 10
+            depth = 1
         )
 
         self.twist = Twist()
         
-        self.publisher = self.create_publisher(Twist, "/cmd_vel", 10)
+        self.publisher = self.create_publisher(Twist, "/cmd_vel", 1)
         self.create_subscription(Pose, '/pose', self.position_callback, qos_profile)
         self.create_subscription(Vector3, '/qd', self.desired_position_callback, qos_profile)
            
         self.qd = np.array([[0.0, 0.0]]).T
         # Referencias deseadas
-        self.q0 = np.array([[0.1, 0.0]]).T
+        self.q0 = np.array([[0.0, 0.0]]).T
         self.thetha = 0.0
         
         # Parámetros del control
         self.k = 0.1   # Ganancia del controlador
         self.h = 0.05   # Parámetro de transformación (debe ser diferente de 0)
         
-        self.timer = self.create_timer(0.001, self.timer_callback)
+        self.timer = self.create_timer(0.01, self.timer_callback)
         
     def position_callback(self, msg):
         self.get_logger().info(f'Actual Position: x:{msg.position.x}, y:{msg.position.y}, z:{msg.position.z}')

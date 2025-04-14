@@ -9,9 +9,9 @@ class qd_Node(Node):
         super().__init__('Desired_Position_Node')
         self.get_logger().info("Start QD node")
                 
-        self.publisher = self.create_publisher(Vector3, "/qd", 10)
+        self.publisher = self.create_publisher(Vector3, "/qd", 1)
         
-        self.timer = self.create_timer(0.001, self.timer_callback)
+        self.timer = self.create_timer(0.1, self.timer_callback)
         
         self.qd = Vector3()
         
