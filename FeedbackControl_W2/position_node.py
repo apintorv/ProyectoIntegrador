@@ -29,7 +29,7 @@ class Position_Node(Node):
         # Position
         self.pose.linear.x = x
         self.pose.linear.y = y
-        self.pose.orientation.z = theta
+        self.pose.angular.z = theta
         self.velPublisher.publish(self.pose)
 
         self.get_logger().info(
