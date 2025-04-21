@@ -2,7 +2,6 @@ import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Vector3
 import numpy as np
-from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy, QoSDurabilityPolicy
 
 class qd_Node(Node):
     def __init__(self):
@@ -15,8 +14,8 @@ class qd_Node(Node):
         
         self.qd = Vector3()
         
-        self.qd.x = 0.0
-        self.qd.y = 0.0
+        self.qd.x = 1.0
+        self.qd.y = 1.0
         self.qd.z = 0.0
         
     def timer_callback(self):
