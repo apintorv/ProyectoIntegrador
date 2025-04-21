@@ -1,6 +1,6 @@
 import rclpy
 from rclpy.node import Node
-from geometry_msgs.msg import Twist, Pose
+from geometry_msgs.msg import Twist
 import numpy as np
 import math
 
@@ -9,16 +9,14 @@ class Position_Node(Node):
         super().__init__('Position_Node')
         self.get_logger().info("Start position node")
 
-        ##suscribirse al nodo del robot que da los sensores 
         self.subscriber = self.create_subscription(Twist, "/vel_raw", self.callback, 1)
-        self.velPublisher = self.create_publisher(Pose, "/pose", 1)
+        self.velPublisher = self.create_publisher(Twist, "/pose", 1)
               
         self.q = np.array([[0, 0, 0]]).T  # Vector de estados q = [x,y,theta]
         
-        self.tao = 0.01
         self.h = 0.05
         
-        self.pose = Pose()
+        self.pose = Twist()
         
         self.last_time = self.get_clock().now()
         self.timer = self.create_timer(0.001, self.timer_callback)
@@ -31,11 +29,11 @@ class Position_Node(Node):
         # Position
         self.pose.position.x = x
         self.pose.position.y = y
-        self.pose.position.z = theta
+        self.pose.orientation.z = theta
         self.velPublisher.publish(self.pose)
 
         self.get_logger().info(
-            f"Pose → x: {x:.2f}, y: {y:.2f}, θ: {theta:.2f} rad"
+            f"Pose → x: {x:.2f}, y: {y:.2f}, θ: {theta:.2f}"
         )
         
     def callback(self, msg):
@@ -49,8 +47,8 @@ class Position_Node(Node):
 
         v = msg.linear.x
         omega = msg.angular.z
-
         theta = self.q[2][0]
+        theta = (theta + math.pi) % (2 * math.pi) - math.pi
         
         u = np.array([[v, omega]]).T
         gx = np.array([
@@ -60,8 +58,6 @@ class Position_Node(Node):
         ])
         
         self.q = self.q + dt * (gx @ u)  
-        
-        self.q[2][0] = (self.q[2][0] + math.pi) % (2 * math.pi) - math.pi
         
 def main(args=None):
     rclpy.init(args=args)

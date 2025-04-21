@@ -1,6 +1,6 @@
 import rclpy
 from rclpy.node import Node
-from geometry_msgs.msg import Twist, Pose, Vector3
+from geometry_msgs.msg import Twist, Vector3
 import numpy as np
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy, QoSDurabilityPolicy
 
@@ -18,7 +18,7 @@ class Control_Node(Node):
         self.twist = Twist()
         
         self.publisher = self.create_publisher(Twist, "/cmd_vel", 1)
-        self.create_subscription(Pose, '/pose', self.position_callback, qos_profile)
+        self.create_subscription(Twist, '/pose', self.position_callback, qos_profile)
         self.create_subscription(Vector3, '/qd', self.desired_position_callback, qos_profile)
            
         self.qd = np.array([[0.0, 0.0]]).T
@@ -27,7 +27,7 @@ class Control_Node(Node):
         self.thetha = 0.0
         
         # Parámetros del control
-        self.k = 0.1   # Ganancia del controlador
+        self.k = 1   # Ganancia del controlador
         self.h = 0.05   # Parámetro de transformación (debe ser diferente de 0)
         
         self.timer = self.create_timer(0.01, self.timer_callback)
@@ -35,7 +35,7 @@ class Control_Node(Node):
     def position_callback(self, msg):
         self.get_logger().info(f'Actual Position: x:{msg.position.x}, y:{msg.position.y}, z:{msg.position.z}')
         self.q0 = np.array([[msg.position.x, msg.position.y]]).T
-        self.thetha = msg.position.z
+        self.thetha = msg.orientation.z
         
     def desired_position_callback(self, msg):
         self.get_logger().info(f'Desired Position: x:{msg.x}, y:{msg.y}')
