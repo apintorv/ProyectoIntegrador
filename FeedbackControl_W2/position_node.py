@@ -27,8 +27,8 @@ class Position_Node(Node):
         theta = float(self.q[2][0])
 
         # Position
-        self.pose.position.x = x
-        self.pose.position.y = y
+        self.pose.linear.x = x
+        self.pose.linear.y = y
         self.pose.orientation.z = theta
         self.velPublisher.publish(self.pose)
 
