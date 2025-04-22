@@ -42,9 +42,6 @@ class Position_Node(Node):
         dt = (current_time - self.last_time).nanoseconds * 1e-9
         self.last_time = current_time
 
-        if dt <= 0:
-            dt = 1e-3  # minimal safe dt
-
         v = msg.linear.x
         omega = msg.angular.z
         theta = self.q[2][0]
