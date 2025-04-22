@@ -11,7 +11,7 @@ class Position_Node(Node):
 
         self.subscriber = self.create_subscription(Twist, "/vel_raw", self.callback, 1)
         self.velPublisher = self.create_publisher(Twist, "/pose", 1)
-              
+
         self.q = np.array([[0, 0, 0]]).T  # Vector de estados q = [x,y,theta]
         
         self.h = 0.05
@@ -41,6 +41,9 @@ class Position_Node(Node):
         current_time = self.get_clock().now()
         dt = (current_time - self.last_time).nanoseconds * 1e-9
         self.last_time = current_time
+
+        if dt <= 0:
+            dt = 1e-3  # minimal safe dt
 
         v = msg.linear.x
         omega = msg.angular.z

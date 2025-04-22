@@ -52,7 +52,7 @@ class Control_Node(Node):
         
         if np.linalg.det(matrix_D) != 0:
             U = np.linalg.inv(matrix_D) @ aux
-         
+
         self.twist.linear.x = U[0][0]
         self.twist.angular.z = U[1][0]
         

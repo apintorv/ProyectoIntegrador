@@ -14,12 +14,17 @@ class qd_Node(Node):
         self.timer = self.create_timer(0.1, self.timer_callback)
         
         self.qd = Vector3()
-        
-        self.qd.x = 0.0
-        self.qd.y = 0.0
-        self.qd.z = 0.0
+
+        self.declare_parameter('desired_x', 1.0)  
+        self.declare_parameter('desired_y', 0.0)
+        self.declare_parameter('desired_z', 0.0)
         
     def timer_callback(self):
+        # Obtener los parámetros deseados
+        self.qd.x = self.get_parameter('desired_x').get_parameter_value().double_value
+        self.qd.y = self.get_parameter('desired_y').get_parameter_value().double_value
+        self.qd.z  = self.get_parameter('desired_z').get_parameter_value().double_value
+
         self.get_logger().info(f'qd x={self.qd.x}, y={self.qd.y}, z={self.qd.z}')        
         self.publisher.publish(self.qd)
 
