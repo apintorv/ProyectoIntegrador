@@ -27,17 +27,17 @@ class Control_Node(Node):
         self.thetha = 0.0
         
         # Parámetros del control
-        self.k = 0.5   # Ganancia del controlador
+        self.k = 0.1   # Ganancia del controlador
         self.h = 0.05   # Parámetro de transformación (debe ser diferente de 0)
         self.timer = self.create_timer(0.01, self.timer_callback)
         
     def position_callback(self, msg):
-        self.get_logger().info(f'Actual Position: x:{msg.linear.x}, y:{msg.linear.y}, z:{msg.angular.z}')
+        #self.get_logger().info(f'Actual Position: x:{msg.linear.x}, y:{msg.linear.y}, z:{msg.angular.z}')
         self.q0 = np.array([[msg.linear.x, msg.linear.y]]).T
         self.thetha = msg.angular.z
         
     def desired_position_callback(self, msg):
-        self.get_logger().info(f'Desired Position: x:{msg.x}, y:{msg.y}')
+        #self.get_logger().info(f'Desired Position: x:{msg.x}, y:{msg.y}')
         self.qd = np.array([[msg.x, msg.y]]).T          
         
     def timer_callback(self):
