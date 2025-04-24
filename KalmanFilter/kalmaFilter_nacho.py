@@ -9,22 +9,30 @@ B = np.array([[0],
               [0.5]])
 u = 0
 
+# Estado inicial del carrito
 x = np.array([[10],
               [10]])
 
+# Estado estimado inicial
 x_hat = np.array([[10],
                   [10]])
 
+# Matriz de covarianza inicial
 P = np.array([[0.0, 0.0],
               [0.0, 0.0]])
 
+# Matrices de ruido
 H = np.array([[1, 0],
               [0, 1]])
 
+# 
 R = np.array([[0.05]])
+
+# Matriz de covarianza del proceso
 Q = np.array([[0.1, 0],
               [0, 0.1]])
 
+# Medición inicial
 Z = np.array([[0],
               [0]])
 
@@ -42,14 +50,13 @@ for t in np.arange(dt, T_sim, dt):
     # Ruido de proceso
     w = np.random.normal(0, 10, (2,1))
 
+    # Kalman update
     x_hat_dot = A @ x_hat + B * u + P @ H.T * np.linalg.inv(R) @ (Z - H @ x_hat)
     P_dot = A @ P + P @ A.T + Q - P @ H.T * np.linalg.inv(R) @ H @ P
     
-    # Estado real (solo para generar medición)
+    # Ecuaciones del sistema
     x_dot = A @ x + B * u + w
     Z = H @ x  # Medición
-
-    # Kalman update
 
     # Integración de Euler
     x = x + dt * x_dot 

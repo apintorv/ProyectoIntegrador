@@ -7,6 +7,7 @@ gamma = 4
 beta = 0.5
 delta = 3
 
+# Obtenida de linealizar las ecuación de Lotka-Volterra
 A = np.array([[alpha, 0],
               [0, -gamma]])
 
@@ -14,22 +15,29 @@ B = np.array([[0],
               [0]])
 u = 0
 
+# Estado inicial del sistema
 x = np.array([[10], #x -> predator
               [5]]) #y -> prey
 
+# Estado estimado inicial
 x_hat = np.array([[0],
                   [0]])
 
+# Matriz de covarianza inicial
 P = np.array([[0.0, 0.0],
               [0.0, 0.0]])
 
+# Matrices de ruido
 H = np.array([[1, 0],
               [0, 1]])
 
 R = np.array([[0.05]])
+
+# Matriz de covarianza del proceso
 Q = np.array([[0.1, 0],
               [0, 0.1]])
 
+# Medición inicial
 Z = np.array([[0],
               [0]])
 
@@ -51,7 +59,8 @@ for t in np.arange(dt, T_sim, dt):
     x_hat_dot = A @ x_hat + B * u + P @ H.T * np.linalg.inv(R) @ (Z - H @ x_hat)
     P_dot = A @ P + P @ A.T + Q - P @ H.T * np.linalg.inv(R) @ H @ P
     
-    
+    # dx/dt = alpha*x - beta*x*y
+    # dy/dt = -gamma*y + delta*x*y
     f1 = x[0, 0] * (alpha - beta*x[1, 0])
     f2 = -x[1, 0] * (gamma - delta*x[0,0])
     
