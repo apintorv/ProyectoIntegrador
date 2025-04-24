@@ -2,7 +2,7 @@ import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist, Vector3
 import numpy as np
-from feedback_control.msg import Circle
+from msgs_circle.msg import Circle
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy, QoSDurabilityPolicy
 
 class Control_Node(Node):
@@ -25,6 +25,7 @@ class Control_Node(Node):
 
            
         self.qd = np.array([[0.0, 0.0]]).T
+        self.qd_dot = np.array([[0.0, 0.0]]).T
         # Referencias deseadas
         self.q0 = np.array([[0.0, 0.0]]).T
         self.thetha = 0.0
