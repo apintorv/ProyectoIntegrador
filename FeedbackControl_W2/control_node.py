@@ -30,7 +30,7 @@ class Control_Node(Node):
         self.thetha = 0.0
         
         # Parámetros del control
-        self.k = 0.1   # Ganancia del controlador
+        self.k = 0.2   # Ganancia del controlador
         self.h = 0.05   # Parámetro de transformación (debe ser diferente de 0)
         self.timer = self.create_timer(0.01, self.timer_callback)
         
