@@ -18,14 +18,14 @@ class qd_Node(Node):
         self.qd.y = 0.0
         self.qd.z = 0.0
         
-        self.declare_parameters(
-            namespace='',
-            parameters=[
-                ('desired_x', 1.0),
-                ('desired_y', 1.0),
-                ('desired_z', 0.0)
-            ]
-        )
+        #self.declare_parameters(
+        #    namespace='',
+        #    parameters=[
+        #        ('desired_x', 1.0),
+        #       ('desired_y', 1.0),
+        #        ('desired_z', 0.0)
+        #    ]
+        #)
         
     def timer_callback(self):
         # Obtener los parámetros deseados

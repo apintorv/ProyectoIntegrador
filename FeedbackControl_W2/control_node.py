@@ -20,8 +20,8 @@ class Control_Node(Node):
         
         self.publisher = self.create_publisher(Twist, "/cmd_vel", 1)
         self.create_subscription(Twist, '/pose_kalman', self.position_callback, qos_profile)
-        #self.create_subscription(Vector3, '/qd', self.desired_position_callback, qos_profile)
-        self.create_subscription(Circle, '/qd_qddot', self.circle_callback, qos_profile)
+        self.create_subscription(Vector3, '/qd', self.desired_position_callback, qos_profile)
+        #self.create_subscription(Circle, '/qd_qddot', self.circle_callback, qos_profile)
 
            
         self.qd = np.array([[0.0, 0.0]]).T
@@ -35,18 +35,18 @@ class Control_Node(Node):
         self.h = 0.05   # Parámetro de transformación (debe ser diferente de 0)
         self.timer = self.create_timer(0.01, self.timer_callback)
         
-    def circle_callback(self, msg):
-        self.qd = np.array([[msg.x, msg.y]]).T 
-        self.qd_dot = np.array([[msg.x_dot, msg.y_dot]]).T 
+    #def circle_callback(self, msg):
+    #    self.qd = np.array([[msg.x, msg.y]]).T 
+    #    self.qd_dot = np.array([[msg.x_dot, msg.y_dot]]).T 
         
     def position_callback(self, msg):
         #self.get_logger().info(f'Actual Position: x:{msg.linear.x}, y:{msg.linear.y}, z:{msg.angular.z}')
         self.q0 = np.array([[msg.linear.x, msg.linear.y]]).T
         self.thetha = msg.angular.z
         
-    #def desired_position_callback(self, msg):
+    def desired_position_callback(self, msg):
         #self.get_logger().info(f'Desired Position: x:{msg.x}, y:{msg.y}')
-        #self.qd = np.array([[msg.x, msg.y]]).T          
+        self.qd = np.array([[msg.x, msg.y]]).T          
         
     def timer_callback(self):
         matrix_D = np.array([
@@ -55,7 +55,8 @@ class Control_Node(Node):
         ])
         
         e = self.q0 - self.qd 
-        aux = self.qd_dot -self.k * e
+        aux = -self.k * e
+        #aux = self.qd_dot -self.k * e  ##used for qd_dot
         
         if np.linalg.det(matrix_D) != 0:
             U = np.linalg.inv(matrix_D) @ aux
