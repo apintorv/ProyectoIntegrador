@@ -19,7 +19,7 @@ class Control_Node(Node):
         self.twist = Twist()
         
         self.publisher = self.create_publisher(Twist, "/cmd_vel", 1)
-        self.create_subscription(Twist, '/pose', self.position_callback, qos_profile)
+        self.create_subscription(Twist, '/pose_kalman', self.position_callback, qos_profile)
         #self.create_subscription(Vector3, '/qd', self.desired_position_callback, qos_profile)
         self.create_subscription(Circle, '/qd_qddot', self.circle_callback, qos_profile)
 
