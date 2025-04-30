@@ -22,13 +22,16 @@ class Kalman_Node(Node):
         self.A = np.zeros((3, 3))
         self.B = np.array([[0.0, 0.0], [0.0, 0.0], [0.0, 1.0]])
         self.u = np.array([[0.0], [0.0]])    # Control input (v, w)
-        self.x_hat = np.array([[0.0], [0.0], [0.0]])  # Estimated state
-        self.P = np.zeros((3, 3))
-        self.H = np.eye(3)
-        self.R = np.diag([0.1, 0.1, 0.1])
-        self.Q = np.eye(3) * 0.01
-        self.Z = np.array([[0.0], [0.0], [0.0]])  # Measurement
+        self.x_hat = np.array([[0.0], [0.0], [0.0]])  # Estado estimado
+        self.P = np.zeros((3, 3))             # Covarianza inicial
+        self.H = np.eye(3)                    # Medición directa
+        self.R = np.array([[1, 0, 0],
+                           [0, 1, 0],
+                           [0, 0, 1]]) # modificar
+        self.Q = np.eye(3) * 0.01             # Ruido de proceso más pequeño
+        self.Z = np.array([[0.0], [0.0], [0.0]])  # Medición inicial
 
+        # Mensaje de salida
         self.pose_msg = Twist()
 
         # Timer
@@ -49,7 +52,7 @@ class Kalman_Node(Node):
             return
         self.last_time = current_time
 
-        # Kalman filter differential equations
+        # Ecuaciones de Kalman continuo
         x_hat_dot = self.A @ self.x_hat + self.B @ self.u + self.P @ self.H.T @ np.linalg.inv(self.R) @ (self.Z - self.H @ self.x_hat)
         P_dot = self.A @ self.P + self.P @ self.A.T + self.Q - self.P @ self.H.T @ np.linalg.inv(self.R) @ self.H @ self.P
 
