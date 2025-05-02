@@ -1,7 +1,7 @@
 import rclpy
 from rclpy.node import Node
 from nav_msgs.msg import OccupancyGrid, Path
-from geometry_msgs.msg import PoseStamped, PointStamped
+from geometry_msgs.msg import PoseStamped, Vector3
 import numpy as np
 
 from pathfinding.core.grid import Grid
@@ -12,10 +12,10 @@ class Planning_Node(Node):
         super().__init__('Planning_Node')
         self.map = None
         self.map_info = None
-        self.start_pose = (2, 2)  # celda inicial (en coordenadas del grid)
+        self.start_pose = (0, 0)  # celda inicial (en coordenadas del grid)
 
         self.map_sub = self.create_subscription(OccupancyGrid, '/map', self.map_callback, 10)
-        self.goal_sub = self.create_subscription(PointStamped, '/goal_point', self.goal_callback, 10)
+        self.goal_sub = self.create_subscription(Vector3, '/qd', self.goal_callback, 10)
         self.path_pub = self.create_publisher(Path, '/planned_path', 10)
 
     def map_callback(self, msg):

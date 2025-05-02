@@ -1,104 +1,134 @@
 import rclpy
 from rclpy.node import Node
-import numpy as np
 from sensor_msgs.msg import LaserScan
+from nav_msgs.msg import OccupancyGrid
+from geometry_msgs.msg import TransformStamped
+from tf2_ros import TransformListener, Buffer
+import numpy as np
+import math
 
-class OccupancyMapNode(Node):
+MAP_SIZE = 10  # 10x10 grid
+RESOLUTION = 0.05  # 5cm per cell
+MAX_PROB = 1.0
+MIN_PROB = 0.0
+
+class DynamicMapper(Node):
     def __init__(self):
-        super().__init__('occupancy_map_node')
-        
-        # Parameters
-        self.declare_parameter('map_size', 5)
-        self.declare_parameter('max_range', 1.0)
-        self.declare_parameter('decay_rate', 0.5)
-        self.declare_parameter('update_interval', 1.0)  # seconds between updates
-        
-        # Variables
-        self.lidar_coords = []
-        self.map_size = self.get_parameter('map_size').value
-        self.max_range = self.get_parameter('max_range').value
-        self.decay_rate = self.get_parameter('decay_rate').value
-        
-        # Subscriber
-        self.subscription = self.create_subscription(
-            LaserScan,
-            '/scan',  # Default LIDAR topic
-            self.lidar_callback,
-            10
-        )
-        
-        # Timer for periodic updates
-        self.create_timer(
-            self.get_parameter('update_interval').value,
-            self.log_occupancy_map
-        )
-    
-    def lidar_callback(self, msg):
-        """Convert LaserScan data to Cartesian coordinates"""
-        self.lidar_coords = []
-        
-        for i, distance in enumerate(msg.ranges):
-            # Skip invalid measurements
-            if distance < msg.range_min or distance > msg.range_max:
-                continue
-                
-            # Convert polar to Cartesian coordinates
-            angle = msg.angle_min + i * msg.angle_increment
-            x = distance * np.cos(angle)
-            y = distance * np.sin(angle)
-            
-            # Scale and discretize coordinates to fit our map
-            scaled_x = int((x + self.map_size/2) % self.map_size)
-            scaled_y = int((y + self.map_size/2) % self.map_size)
-            
-            self.lidar_coords.append((scaled_x, scaled_y))
-    
-    def create_occupancy_map(self):
-        """Create occupancy probability map from LIDAR coordinates"""
-        occupancy_map = np.zeros((self.map_size, self.map_size))
-        
-        for (x, y) in self.lidar_coords:
-            if 0 <= x < self.map_size and 0 <= y < self.map_size:
-                occupancy_map[y, x] = max(occupancy_map[y, x], self.max_range)
-                
-                # Apply decay to neighboring cells
-                for di in [-1, 0, 1]:
-                    for dj in [-1, 0, 1]:
-                        if di == 0 and dj == 0:
-                            continue
-                        ni, nj = y + di, x + dj
-                        if 0 <= ni < self.map_size and 0 <= nj < self.map_size:
-                            new_val = self.max_range * (1.0 - self.decay_rate)
-                            occupancy_map[ni, nj] = max(occupancy_map[ni, nj], new_val)
-        
-        return occupancy_map
-    
-    def log_occupancy_map(self):
-        """Log the occupancy matrix to console"""
-        if not self.lidar_coords:
-            self.get_logger().info("Waiting for LIDAR data...")
-            return
-            
-        occupancy_map = self.create_occupancy_map()
-        
-        # Format the matrix for logging
-        matrix_str = "\nOccupancy Matrix:\n"
-        for row in occupancy_map:
-            matrix_str += " ".join(f"{val:.2f}" for val in row) + "\n"
-        
-        self.get_logger().info(matrix_str)
+        super().__init__('dynamic_mapper')
+        self.scan_sub = self.create_subscription(LaserScan, '/scan', self.scan_callback, 10)
+        self.map_pub = self.create_publisher(OccupancyGrid, '/dynamic_map', 10)
 
-def main(args=None):
-    rclpy.init(args=args)
-    node = OccupancyMapNode()
-    
-    try:
-        rclpy.spin(node)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        node.destroy_node()
-        rclpy.shutdown()
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
+
+        self.map = np.full((MAP_SIZE, MAP_SIZE), 0.5)  # start at 0.5 (unknown)
+        self.origin_x = -MAP_SIZE // 2
+        self.origin_y = -MAP_SIZE // 2
+
+    def scan_callback(self, msg):
+        try:
+            tf = self.tf_buffer.lookup_transform('base_link', msg.header.frame_id, rclpy.time.Time())
+        except Exception as e:
+            self.get_logger().warn(f"Transform not available: {e}")
+            return
+
+        angle = msg.angle_min
+        for r in msg.ranges:
+            if msg.range_min < r < msg.range_max:
+                x_lidar = r * math.cos(angle)
+                y_lidar = r * math.sin(angle)
+
+                # Transform to base_link frame
+                dx = tf.transform.translation.x
+                dy = tf.transform.translation.y
+                yaw = self.get_yaw_from_quaternion(tf.transform.rotation)
+                x_robot = math.cos(yaw) * x_lidar - math.sin(yaw) * y_lidar + dx
+                y_robot = math.sin(yaw) * x_lidar + math.cos(yaw) * y_lidar + dy
+
+                # Bresenham to mark free space
+                self.update_map_ray(0.0, 0.0, x_robot, y_robot)
+
+            angle += msg.angle_increment
+
+        self.publish_map()
+
+    def update_map_ray(self, x0, y0, x1, y1):
+        x0_i = int((x0 / RESOLUTION) + MAP_SIZE // 2)
+        y0_i = int((y0 / RESOLUTION) + MAP_SIZE // 2)
+        x1_i = int((x1 / RESOLUTION) + MAP_SIZE // 2)
+        y1_i = int((y1 / RESOLUTION) + MAP_SIZE // 2)
+
+        points = self.bresenham(x0_i, y0_i, x1_i, y1_i)
+        for i, j in points[:-1]:
+            if 0 <= i < MAP_SIZE and 0 <= j < MAP_SIZE:
+                self.map[j, i] = max(self.map[j, i] - 0.1, MIN_PROB)  # mark free
+
+        i, j = points[-1]
+        if 0 <= i < MAP_SIZE and 0 <= j < MAP_SIZE:
+            self.map[j, i] = min(self.map[j, i] + 0.1, MAX_PROB)  # mark occupied
+
+    def bresenham(self, x0, y0, x1, y1):
+        points = []
+        dx = abs(x1 - x0)
+        dy = abs(y1 - y0)
+        x, y = x0, y0
+        sx = -1 if x0 > x1 else 1
+        sy = -1 if y0 > y1 else 1
+        if dx > dy:
+            err = dx / 2.0
+            while x != x1:
+                points.append((x, y))
+                err -= dy
+                if err < 0:
+                    y += sy
+                    err += dx
+                x += sx
+        else:
+            err = dy / 2.0
+            while y != y1:
+                points.append((x, y))
+                err -= dx
+                if err < 0:
+                    x += sx
+                    err += dy
+                y += sy
+        points.append((x1, y1))
+        return points
+
+    def get_yaw_from_quaternion(self, q):
+        siny_cosp = 2 * (q.w * q.z + q.x * q.y)
+        cosy_cosp = 1 - 2 * (q.y * q.y + q.z * q.z)
+        return math.atan2(siny_cosp, cosy_cosp)
+
+    def publish_map(self):
+        msg = OccupancyGrid()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.frame_id = 'map'
+        msg.info.resolution = RESOLUTION
+        msg.info.width = MAP_SIZE
+        msg.info.height = MAP_SIZE
+        msg.info.origin.position.x = self.origin_x * RESOLUTION
+        msg.info.origin.position.y = self.origin_y * RESOLUTION
+        msg.data = [int(p * 100) if 0.0 <= p <= 1.0 else -1 for p in self.map.flatten()]
+        self.map_pub.publish(msg)
+
+        # Print terminal map with raw probability values
+        output = ''
+        for row in self.map:
+            line = ' '.join([f"{p:.2f}" for p in row])  # Print the raw probabilities
+            output += line + '\n'
+        self.get_logger().info('\n' + output)
+
+        # Also print the raw probability values in a clearer format
+        prob_output = '\n'.join([', '.join([f"{p:.2f}" for p in row]) for row in self.map])
+        self.get_logger().info(f"\nProbabilities:\n{prob_output}")
+
+def main():
+    rclpy.init()
+    node = DynamicMapper()
+    rclpy.spin(node)
+    node.destroy_node()
+    rclpy.shutdown()
 
 if __name__ == '__main__':
     main()
