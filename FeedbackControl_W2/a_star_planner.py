@@ -2,6 +2,7 @@ import rclpy
 from rclpy.node import Node
 from nav_msgs.msg import OccupancyGrid, Path
 from geometry_msgs.msg import PoseStamped
+from std_msgs.msg import Float32MultiArray
 import numpy as np
 import heapq
 import random
@@ -12,6 +13,7 @@ class AStarPlanner(Node):
         super().__init__('a_star_planner')
         self.map_sub = self.create_subscription(OccupancyGrid, '/map', self.map_callback, 10)
         self.path_pub = self.create_publisher(Path, '/planned_path', 10)
+        self.pose_array_pub = self.create_publisher(Float32MultiArray, '/path_array', 10)
 
         self.map = None
         self.map_info = None
@@ -118,6 +120,16 @@ class AStarPlanner(Node):
     def publish_path(self, path):
         path_msg = Path()
         path_msg.header.frame_id = 'map'
+
+        self.path_vectors = []
+        for p in path:
+            self.path_vectors.append(p)
+
+        flattened_data = [float(item) for sublist in self.path_vectors for item in sublist]
+        msg = Float32MultiArray()
+        msg.data = flattened_data  
+        self.pose_array_pub.publish(msg)
+
         for x, y in path:
             pose = PoseStamped()
             pose.header.frame_id = 'map'
