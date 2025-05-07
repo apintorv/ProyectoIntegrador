@@ -32,6 +32,8 @@ class Control_Trajectory(Node):
         self.k = 0.2
         self.h = 0.05
         self.threshold = 0.1  # Umbral para considerar que se ha llegado a un punto
+        
+        self.received_pose = False
 
         self.timer = self.create_timer(0.001, self.timer_callback)
         
@@ -54,6 +56,7 @@ class Control_Trajectory(Node):
         # Reconstruir las coordenadas de qd (tuplas de 2 elementos)
         self.qd_list = [np.array([[flattened_data[i], flattened_data[i + 1]]]).T for i in range(0, len(flattened_data), 2)]
         self.qd = self.qd_list[self.current_target_index]  # Inicializar con el primer objetivo
+        self.received_pose = True  
 
         self.get_logger().info(f"Nuevo conjunto de puntos qd recibido: {self.qd_list}")
 
@@ -64,31 +67,32 @@ class Control_Trajectory(Node):
             [np.sin(self.thetha),  self.h * np.cos(self.thetha)]
         ])
         
-        e = self.q0 - self.qd
-        dist_to_target = np.linalg.norm(e)
+        if self.received_pose:
+            e = self.q0 - self.qd
+            dist_to_target = np.linalg.norm(e)
 
-        self.get_logger().info(f'Qd: {self.qd.T}')
-        self.get_logger().info(f'Q0: {self.q0.T}')
-        self.get_logger().info(f'Distancia al objetivo: {dist_to_target}')
+            self.get_logger().info(f'Qd: {self.qd.T}')
+            self.get_logger().info(f'Q0: {self.q0.T}')
+            self.get_logger().info(f'Distancia al objetivo: {dist_to_target}')
 
 
-        # Si llegó al punto, pasar al siguiente
-        if dist_to_target < self.threshold:
-            self.current_target_index = (self.current_target_index + 1) % len(self.qd_list)
-            self.qd = self.qd_list[self.current_target_index]
-            self.get_logger().info(f"Cambiando al siguiente punto: {self.qd.T}")
+            # Si llegó al punto, pasar al siguiente
+            if dist_to_target < self.threshold:
+                self.current_target_index = (self.current_target_index + 1) % len(self.qd_list)
+                self.qd = self.qd_list[self.current_target_index]
+                self.get_logger().info(f"Cambiando al siguiente punto: {self.qd.T}")
 
-        aux = -self.k * e
+            aux = -self.k * e
 
-        if np.linalg.det(matrix_D) != 0:
-            U = np.linalg.inv(matrix_D) @ aux
-        else:
-            U = np.array([[0.0], [0.0]])
+            if np.linalg.det(matrix_D) != 0:
+                U = np.linalg.inv(matrix_D) @ aux
+            else:
+                U = np.array([[0.0], [0.0]])
 
-        self.twist.linear.x = float(U[0])
-        self.twist.angular.z = float(U[1])
+            self.twist.linear.x = float(U[0])
+            self.twist.angular.z = float(U[1])
 
-        self.publisher.publish(self.twist)
+            self.publisher.publish(self.twist)
 
 def main(args=None):
     rclpy.init(args=args)
