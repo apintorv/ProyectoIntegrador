@@ -50,6 +50,9 @@ class Kalman_Node(Node):
         self.timer = self.create_timer(0.01, self.timer_callback)
 
     def callback_pose(self, msg):
+        self.get_logger().info(
+            f"Received"
+        )
         self.Z = np.array([[msg.linear.x], [msg.linear.y], [msg.angular.z]])
         self.received_pose = True
 
@@ -87,9 +90,9 @@ class Kalman_Node(Node):
         # ])
 
         # Log opcional
-        self.get_logger().info(
-            f"Pose → x: {self.pose_msg.linear.x:.2f}, y: {self.pose_msg.linear.y:.2f}, θ: {math.degrees(self.pose_msg.angular.z):.2f}°"
-        )
+        # self.get_logger().info(
+        #     f"Pose → x: {self.pose_msg.linear.x:.2f}, y: {self.pose_msg.linear.y:.2f}, θ: {math.degrees(self.pose_msg.angular.z):.2f}°"
+        # )
 
     # def save_excel(self):
     #     self.get_logger().info("Guardando archivo Excel...")

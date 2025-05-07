@@ -7,21 +7,23 @@ from tf2_ros import TransformListener, Buffer
 import numpy as np
 import math
 
-MAP_SIZE = 10  # 10x10 grid
-RESOLUTION = 0.05  # 5cm per cell
+MAP_SIZE = 401  # 401x401 grid → centro exacto en (200,200)
+RESOLUTION = 0.05  # 5cm por celda
 MAX_PROB = 1.0
 MIN_PROB = 0.0
 
-class DynamicMapper(Node):
+class OccupancyGridNode(Node):
     def __init__(self):
-        super().__init__('dynamic_mapper')
+        super().__init__('OccupancyGridNode')
         self.scan_sub = self.create_subscription(LaserScan, '/scan', self.scan_callback, 10)
-        self.map_pub = self.create_publisher(OccupancyGrid, '/dynamic_map', 10)
+        self.map_pub = self.create_publisher(OccupancyGrid, '/map', 10)
 
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
-        self.map = np.full((MAP_SIZE, MAP_SIZE), 0.5)  # start at 0.5 (unknown)
+        self.map = np.full((MAP_SIZE, MAP_SIZE), 0.5)  # Desconocido
+
+        # 🔄 Origen centrado en el mundo real
         self.origin_x = -MAP_SIZE // 2
         self.origin_y = -MAP_SIZE // 2
 
@@ -38,14 +40,13 @@ class DynamicMapper(Node):
                 x_lidar = r * math.cos(angle)
                 y_lidar = r * math.sin(angle)
 
-                # Transform to base_link frame
+                # Transformación a base_link
                 dx = tf.transform.translation.x
                 dy = tf.transform.translation.y
                 yaw = self.get_yaw_from_quaternion(tf.transform.rotation)
                 x_robot = math.cos(yaw) * x_lidar - math.sin(yaw) * y_lidar + dx
                 y_robot = math.sin(yaw) * x_lidar + math.cos(yaw) * y_lidar + dy
 
-                # Bresenham to mark free space
                 self.update_map_ray(0.0, 0.0, x_robot, y_robot)
 
             angle += msg.angle_increment
@@ -53,19 +54,22 @@ class DynamicMapper(Node):
         self.publish_map()
 
     def update_map_ray(self, x0, y0, x1, y1):
-        x0_i = int((x0 / RESOLUTION) + MAP_SIZE // 2)
-        y0_i = int((y0 / RESOLUTION) + MAP_SIZE // 2)
-        x1_i = int((x1 / RESOLUTION) + MAP_SIZE // 2)
-        y1_i = int((y1 / RESOLUTION) + MAP_SIZE // 2)
+        def to_cell(x, y):
+            i = int((x / RESOLUTION)) + MAP_SIZE // 2
+            j = int((y / RESOLUTION)) + MAP_SIZE // 2
+            return i, j
+
+        x0_i, y0_i = to_cell(x0, y0)
+        x1_i, y1_i = to_cell(x1, y1)
 
         points = self.bresenham(x0_i, y0_i, x1_i, y1_i)
         for i, j in points[:-1]:
             if 0 <= i < MAP_SIZE and 0 <= j < MAP_SIZE:
-                self.map[j, i] = max(self.map[j, i] - 0.1, MIN_PROB)  # mark free
+                self.map[j, i] = max(self.map[j, i] - 0.1, MIN_PROB)
 
         i, j = points[-1]
         if 0 <= i < MAP_SIZE and 0 <= j < MAP_SIZE:
-            self.map[j, i] = min(self.map[j, i] + 0.1, MAX_PROB)  # mark occupied
+            self.map[j, i] = min(self.map[j, i] + 0.1, MAX_PROB)
 
     def bresenham(self, x0, y0, x1, y1):
         points = []
@@ -107,12 +111,12 @@ class DynamicMapper(Node):
         msg.info.resolution = RESOLUTION
         msg.info.width = MAP_SIZE
         msg.info.height = MAP_SIZE
+        # 📍 Publicar el origen en coordenadas del mundo
         msg.info.origin.position.x = self.origin_x * RESOLUTION
         msg.info.origin.position.y = self.origin_y * RESOLUTION
         msg.data = [int(p * 100) if 0.0 <= p <= 1.0 else -1 for p in self.map.flatten()]
         self.map_pub.publish(msg)
-
-        # Print terminal map with raw probability values
+        
         output = ''
         for row in self.map:
             line = ' '.join([f"{p:.2f}" for p in row])  # Print the raw probabilities
@@ -123,9 +127,10 @@ class DynamicMapper(Node):
         prob_output = '\n'.join([', '.join([f"{p:.2f}" for p in row]) for row in self.map])
         self.get_logger().info(f"\nProbabilities:\n{prob_output}")
 
+
 def main():
     rclpy.init()
-    node = DynamicMapper()
+    node = OccupancyGridNode()
     rclpy.spin(node)
     node.destroy_node()
     rclpy.shutdown()
