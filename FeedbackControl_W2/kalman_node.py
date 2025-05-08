@@ -29,7 +29,7 @@ class Kalman_Node(Node):
         self.x_hat = np.array([[0.0], [0.0], [0.0]])
         self.P = np.zeros((3, 3))
         self.H = np.eye(3)
-        self.R = np.diag([10, 5, 1])
+        self.R = np.diag([0.001, 0.001, 0.001])
         self.Q = np.eye(3) * 0.01
         self.Z = np.array([[0.0], [0.0], [0.0]])
 

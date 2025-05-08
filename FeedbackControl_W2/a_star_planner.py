@@ -1,36 +1,45 @@
 import rclpy 
 from rclpy.node import Node
 from nav_msgs.msg import OccupancyGrid, Path
-from geometry_msgs.msg import PoseStamped, Vector3
+from geometry_msgs.msg import PoseStamped, Vector3, Twist
 from std_msgs.msg import Float32MultiArray
 import numpy as np
 import heapq
-#import random
-from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy, QoSDurabilityPolicy
 import hashlib
 
 class AStarPlanner(Node):
     def __init__(self):
         super().__init__('a_star_planner')
         
-        qos_profile = QoSProfile(
-            reliability = QoSReliabilityPolicy.RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT,
-            history = QoSHistoryPolicy.RMW_QOS_POLICY_HISTORY_KEEP_LAST,
-            depth = 1
-        )
-        
         self.map_sub = self.create_subscription(OccupancyGrid, '/map', self.map_callback, 10)
-        self.create_subscription(Vector3, '/qd', self.desired_position_callback, qos_profile)
+        self.create_subscription(Vector3, '/qd', self.desired_position_callback, 10)
+        self.create_subscription(Twist, '/pose', self.position_callback, 10)
+
+        
         self.path_pub = self.create_publisher(Path, '/planned_path', 10)
         self.pose_array_pub = self.create_publisher(Float32MultiArray, '/path_array', 10)
-        self.qd = None
+        
+        self.qd = None  # goal
+        self.q0 = None  # start (posición actual del robot)
         
         self.map = None
         self.map_info = None
         self.last_map_hash = None
         self.current_start = None
         self.current_goal = None
-        
+
+    def position_callback(self, msg):
+        x = msg.linear.x
+        y = msg.linear.y
+        self.q0 = self.world_to_map(x, y)
+
+        if self.q0 is None:
+            self.get_logger().warn('⚠️ Current position is out of map bounds')
+        else:
+            self.get_logger().info(f'📍 Current position (start) set to: {self.q0}')
+            if self.qd is not None:
+                self.plan_path()
+
     def map_callback(self, msg):
         new_map_data = np.array(msg.data).reshape((msg.info.height, msg.info.width))
         new_hash = hashlib.md5(new_map_data).hexdigest()
@@ -43,110 +52,104 @@ class AStarPlanner(Node):
         self.last_map_hash = new_hash
 
         self.get_logger().info('🗺️ Map updated. Replanning...')
-        self.plan_path()
-        
-    def world_to_map(self, x, y):
-        cx = self.map_info.width // 2
-        cy = self.map_info.height // 2
-        mx = int(round(x / self.map_info.resolution + cx))
-        my = int(round(y / self.map_info.resolution + cy))
-        return mx, my
 
-        
-    def desired_position_callback(self, msg):
-        #self.get_logger().info(f'Desired Position: x:{msg.x}, y:{msg.y}')
-        x_world = msg.x
-        y_world = msg.y
-        mx, my = self.world_to_map(x_world, y_world)
-        self.qd = (mx, my)
-        self.get_logger().info(f'🎯 Received desired goal: ({mx}, {my})')
-
-        # Trigger path planning
-        if self.map is not None:
+        if self.qd is not None and self.q0 is not None:
             self.plan_path()
 
-    # def get_random_free_cell(self):
-    #     height, width = self.map.shape
-    #     free_cells = np.argwhere((self.map >= 0) & (self.map < 50))
-    #     if len(free_cells) < 2:
-    #         self.get_logger().error('No enough free cells found!')
-    #         return None, None
-    #     start_idx, goal_idx = random.sample(range(len(free_cells)), 2)
-    #     start = tuple(reversed(free_cells[start_idx]))
-    #     goal = tuple(reversed(free_cells[goal_idx]))
-    #     return start, goal
+    def world_to_map(self, x, y):
+        if self.map_info is None:
+            self.get_logger().warn('⚠️ No map_info yet in world_to_map()')
+            return None
+
+        mx = int((x - self.map_info.origin.position.x) / self.map_info.resolution)
+        my = int((y - self.map_info.origin.position.y) / self.map_info.resolution)
+
+        if 0 <= mx < self.map_info.width and 0 <= my < self.map_info.height:
+            return mx, my
+        else:
+            self.get_logger().warn('❌ World coordinates out of map bounds')
+            return None
 
     def map_to_world(self, mx, my):
-        # Ajuste para que el origen esté en el centro del mapa
-        cx = self.map_info.width // 2
-        cy = self.map_info.height // 2
-        x = (mx - cx) * self.map_info.resolution
-        y = (my - cy) * self.map_info.resolution
+        x = mx * self.map_info.resolution + self.map_info.origin.position.x
+        y = my * self.map_info.resolution + self.map_info.origin.position.y
         return x, y
 
-    def is_occupied(self, x, y):
-        val = self.map[y, x]
-        return val > 50  # Zona ocupada
-
-    def plan_path(self):
+    def desired_position_callback(self, msg):
+        x_world = msg.x
+        y_world = msg.y
         
-        if self.qd is None:
-            self.get_logger().warn('⚠️ Desired goal not yet received!')
+        self.get_logger().info(f'Received desired goal: {x_world, y_world}')
+
+        if self.map_info is None:
+            self.get_logger().warn('⚠️ Map not received yet. Goal will be stored and used later.')
+            self.qd = (x_world, y_world)
             return
 
-        goal = self.qd
-        start = (0, 0)
+        self.qd = self.world_to_map(x_world, y_world)
 
-        if not start or not goal:
-            self.get_logger().warn('🛑 No valid cells to plan path!')
+        if self.qd is not None:
+            self.get_logger().info(f'🎯 Received desired goal in map coordinates: {self.qd}')
+            if self.q0 is not None:
+                self.plan_path()
+
+    def is_occupied(self, x, y):
+        return self.map[y, x] > 50
+
+    def plan_path(self):
+        if self.map_info is None or self.map is None:
+            self.get_logger().warn('⚠️ Cannot plan path: map not ready.')
+            return
+
+        if self.qd is None or self.q0 is None:
+            self.get_logger().warn('⚠️ Start or goal position not yet received.')
+            return
+
+        start = self.q0
+        goal = self.qd
+
+        if start is None or goal is None:
+            self.get_logger().warn('🛑 Invalid start or goal.')
             return
 
         self.current_start = start
         self.current_goal = goal
 
-        # Use the a_star_algorithm function to compute the path
         path = self.a_star_algorithm(start, goal)
 
         if path:
             self.publish_path(path)
-            self.print_path(path)  # Print the path
         else:
-            self.get_logger().info("No path found")
+            self.get_logger().info("❌ No path found")
 
     def a_star_algorithm(self, start, goal):
-        """A* algorithm function that computes the shortest path."""
         open_list = []
         heapq.heappush(open_list, (0, start))
-
         came_from = {}
         g_score = {start: 0}
         f_score = {start: self.heuristic(start, goal)}
 
         while open_list:
             current = heapq.heappop(open_list)[1]
-
             if current == goal:
-                path = self.reconstruct_path(came_from, current)
-                return path
-
+                return self.reconstruct_path(came_from, current)
             for neighbor in self.get_neighbors(current):
                 if self.is_occupied(*neighbor):
                     continue
-
                 tentative_g_score = g_score[current] + 1
-
                 if neighbor not in g_score or tentative_g_score < g_score[neighbor]:
                     came_from[neighbor] = current
                     g_score[neighbor] = tentative_g_score
                     f_score[neighbor] = g_score[neighbor] + self.heuristic(neighbor, goal)
                     heapq.heappush(open_list, (f_score[neighbor], neighbor))
-
-        return None  # Return None if no path is found
+        return None
 
     def get_neighbors(self, current):
         x, y = current
         neighbors = [(x + dx, y + dy) for dx in [-1, 0, 1] for dy in [-1, 0, 1]
-                    if (dx != 0 or dy != 0) and 0 <= x + dx < self.map.shape[1] and 0 <= y + dy < self.map.shape[0]]
+                     if (dx != 0 or dy != 0)
+                     and 0 <= x + dx < self.map.shape[1]
+                     and 0 <= y + dy < self.map.shape[0]]
         return neighbors
 
     def heuristic(self, a, b):
@@ -167,23 +170,6 @@ class AStarPlanner(Node):
         path_msg = Path()
         path_msg.header.frame_id = 'map'
 
-        # Publish start and end points
-        start_x, start_y = self.map_to_world(self.current_start[0], self.current_start[1])
-        goal_x, goal_y = self.map_to_world(self.current_goal[0], self.current_goal[1])
-
-        start_pose = PoseStamped()
-        start_pose.header.frame_id = 'map'
-        start_pose.pose.position.x = start_x
-        start_pose.pose.position.y = start_y
-        path_msg.poses.append(start_pose)
-
-        goal_pose = PoseStamped()
-        goal_pose.header.frame_id = 'map'
-        goal_pose.pose.position.x = goal_x
-        goal_pose.pose.position.y = goal_y
-        path_msg.poses.append(goal_pose)
-
-        # Publish the path waypoints in world coordinates
         for (x, y) in path:
             wx, wy = self.map_to_world(x, y)
             pose = PoseStamped()
@@ -193,15 +179,22 @@ class AStarPlanner(Node):
             path_msg.poses.append(pose)
 
         self.path_pub.publish(path_msg)
-
-        # Print start and end coordinates
-        self.get_logger().info(f'📍 Start Point: ({start_x:.2f}, {start_y:.2f})')
-        self.get_logger().info(f'📍 Goal Point: ({goal_x:.2f}, {goal_y:.2f})')
+        
+        array_msg = Float32MultiArray()
+        path_coords = []
 
         for (x, y) in path:
             wx, wy = self.map_to_world(x, y)
-            self.get_logger().info(f'📍 Waypoint: ({wx:.2f}, {wy:.2f})')  # en metros
+            path_coords.extend([wx, wy])  # x, y consecutivos
 
+        array_msg.data = path_coords
+        self.pose_array_pub.publish(array_msg)
+
+        self.get_logger().info(f'Path array published with {len(path)//2} points.')
+        
+        for (x, y) in path:
+            wx, wy = self.map_to_world(x, y)
+            self.get_logger().info(f'📍 Waypoint: ({wx:.2f}, {wy:.2f})')
 
 def main():
     rclpy.init()

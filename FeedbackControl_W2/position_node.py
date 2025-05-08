@@ -9,7 +9,7 @@ class Position_Node(Node):
         super().__init__('Position_Node')
         self.get_logger().info("Start position node")
 
-        self.subscriber = self.create_subscription(Twist, "/vel_raw", self.callback, 1)
+        self.subscriber = self.create_subscription(Twist, "/cmd_vel", self.callback, 1)
         self.velPublisher = self.create_publisher(Twist, "/pose", 1)
 
         self.q = np.array([[0, 0, 0]]).T  # Vector de estados q = [x,y,theta]
