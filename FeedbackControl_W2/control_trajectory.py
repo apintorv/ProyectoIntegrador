@@ -95,12 +95,12 @@ class Control_Trajectory(Node):
             [np.sin(self.thetha),  self.h * np.cos(self.thetha)]
         ])
 
-        aux = -self.k * e
+            aux = -self.k * e
 
-        if np.linalg.det(matrix_D) != 0:
-            U = np.linalg.inv(matrix_D) @ aux
-        else:
-            U = np.array([[0.0], [0.0]])
+            if np.linalg.det(matrix_D) != 0:
+                U = np.linalg.inv(matrix_D) @ aux
+            else:
+                U = np.array([[0.0], [0.0]])
 
         self.twist.linear.x = float(U[0])
         self.twist.angular.z = float(U[1])
