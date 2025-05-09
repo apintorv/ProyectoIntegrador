@@ -13,14 +13,14 @@ class AStarPlanner(Node):
         
         self.map_sub = self.create_subscription(OccupancyGrid, '/map', self.map_callback, 10)
         self.create_subscription(Vector3, '/qd', self.desired_position_callback, 10)
-        self.create_subscription(Twist, '/pose', self.position_callback, 10)
+        self.create_subscription(Twist, '/pose', self.position_callback, 1)
 
-        
         self.path_pub = self.create_publisher(Path, '/planned_path', 10)
         self.pose_array_pub = self.create_publisher(Float32MultiArray, '/path_array', 10)
         
-        self.qd = None  # goal
-        self.q0 = None  # start (posición actual del robot)
+        self.qd = None  # goal (en coordenadas de mapa)
+        self.q0 = None  # start (en coordenadas de mapa)
+        self.robot_pose_world = None  # posición real del robot en el mundo
         
         self.map = None
         self.map_info = None
@@ -31,6 +31,8 @@ class AStarPlanner(Node):
     def position_callback(self, msg):
         x = msg.linear.x
         y = msg.linear.y
+
+        self.robot_pose_world = (x, y)
         self.q0 = self.world_to_map(x, y)
 
         if self.q0 is None:
@@ -71,8 +73,8 @@ class AStarPlanner(Node):
             return None
 
     def map_to_world(self, mx, my):
-        x = mx * self.map_info.resolution + self.map_info.origin.position.x
-        y = my * self.map_info.resolution + self.map_info.origin.position.y
+        x = (mx + 0.5) * self.map_info.resolution + self.map_info.origin.position.x
+        y = (my + 0.5) * self.map_info.resolution + self.map_info.origin.position.y
         return x, y
 
     def desired_position_callback(self, msg):
@@ -169,32 +171,51 @@ class AStarPlanner(Node):
     def publish_path(self, path):
         path_msg = Path()
         path_msg.header.frame_id = 'map'
+        path_msg.header.stamp = self.get_clock().now().to_msg()
 
-        for (x, y) in path:
-            wx, wy = self.map_to_world(x, y)
-            pose = PoseStamped()
-            pose.header.frame_id = 'map'
-            pose.pose.position.x = wx
-            pose.pose.position.y = wy
-            path_msg.poses.append(pose)
-
-        self.path_pub.publish(path_msg)
-        
         array_msg = Float32MultiArray()
         path_coords = []
 
-        for (x, y) in path:
-            wx, wy = self.map_to_world(x, y)
-            path_coords.extend([wx, wy])  # x, y consecutivos
+        # Añadir posición real del robot si está disponible
+        if self.robot_pose_world is not None:
+            self.get_logger().info("Robot position received.")
+            wx, wy = self.robot_pose_world
+            pose = PoseStamped()
+            pose.header.frame_id = 'map'
+            pose.header.stamp = self.get_clock().now().to_msg()
+            pose.pose.position.x = wx
+            pose.pose.position.y = wy
+            path_msg.poses.append(pose)
+            path_coords.extend([wx, wy])
+        else:
+            self.get_logger().warn("⚠️ No real robot position available. Using map cell instead.")
+            (wx, wy) = self.map_to_world(*path[0])
+            pose = PoseStamped()
+            pose.header.frame_id = 'map'
+            pose.header.stamp = self.get_clock().now().to_msg()
+            pose.pose.position.x = wx
+            pose.pose.position.y = wy
+            path_msg.poses.append(pose)
+            path_coords.extend([wx, wy])
 
+        # Resto del camino desde path[1:]
+        for (x, y) in path[1:]:
+            wx, wy = self.map_to_world(x, y)
+            pose = PoseStamped()
+            pose.header.frame_id = 'map'
+            pose.header.stamp = self.get_clock().now().to_msg()
+            pose.pose.position.x = wx
+            pose.pose.position.y = wy
+            path_msg.poses.append(pose)
+            path_coords.extend([wx, wy])
+
+        self.path_pub.publish(path_msg)
         array_msg.data = path_coords
         self.pose_array_pub.publish(array_msg)
 
-        self.get_logger().info(f'Path array published with {len(path)//2} points.')
-        
-        for (x, y) in path:
-            wx, wy = self.map_to_world(x, y)
-            self.get_logger().info(f'📍 Waypoint: ({wx:.2f}, {wy:.2f})')
+        self.get_logger().info(f'📤 Path array published with {len(path_coords)//2} points.')
+        for i in range(0, len(path_coords), 2):
+            self.get_logger().info(f'📍 Waypoint: ({path_coords[i]:.2f}, {path_coords[i+1]:.2f})')
 
 def main():
     rclpy.init()

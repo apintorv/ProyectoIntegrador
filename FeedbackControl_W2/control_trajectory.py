@@ -18,17 +18,17 @@ class Control_Trajectory(Node):
 
         self.twist = Twist()
         self.publisher = self.create_publisher(Twist, "/cmd_vel", 1)
-        self.create_subscription(Twist, '/pose', self.position_callback, qos_profile)
+        self.create_subscription(Twist, '/pose_kalman', self.position_callback, qos_profile)
         self.create_subscription(Float32MultiArray, '/path_array', self.desired_position_callback, qos_profile)
 
         self.qd_list = []
         self.current_target_index = 0
-        self.qd = None  # None hasta recibir la primera lista
+        self.qd = None
         self.q0 = np.array([[0.0, 0.0]]).T
         self.thetha = 0.0
 
         # Parámetros de control
-        self.k = 0.2
+        self.k = 0.1
         self.h = 0.05
         self.threshold = 0.1
 
@@ -46,19 +46,33 @@ class Control_Trajectory(Node):
         if not new_qd_list:
             return
 
-        self.qd_list = new_qd_list
+        # Función para verificar si dos trayectorias son similares
+        def paths_are_similar(old_list, new_list, tolerance=0.05):
+            if len(old_list) != len(new_list):
+                return False
+            for p1, p2 in zip(old_list, new_list):
+                if np.linalg.norm(p1 - p2) > tolerance:
+                    return False
+            return True
 
-        # Skip points too close to the current position
-        min_distance = 0.2  # You can adjust this threshold
+        # Si el nuevo path es similar al anterior, y no hemos terminado, continuar sin reiniciar
+        if paths_are_similar(self.qd_list, new_qd_list) and self.qd is not None:
+            self.get_logger().info("🔁 Path similar al anterior. Continuando sin reiniciar.")
+            return
+
+        # Saltar puntos demasiado cercanos a la posición actual
+        min_distance = 0.05  # 5 cm
         index = 0
-        for i, pt in enumerate(self.qd_list):
+        for i, pt in enumerate(new_qd_list):
             dist = np.linalg.norm(self.q0 - pt)
             if dist > min_distance:
                 index = i
                 break
         else:
-            index = len(self.qd_list) - 1  # If none are far enough, go to last
+            self.get_logger().info("⚠️ Todos los puntos están demasiado cerca. No se actualiza trayectoria.")
+            return  # No hay puntos válidos
 
+        self.qd_list = new_qd_list
         self.current_target_index = index
         self.qd = self.qd_list[self.current_target_index]
 
@@ -66,10 +80,9 @@ class Control_Trajectory(Node):
         self.get_logger().info(f'📍 Robot at: {self.q0.T}')
         self.get_logger().info(f'➡️ Starting at index {self.current_target_index}: {self.qd.T}')
 
-
     def timer_callback(self):
         if self.qd is None or not self.qd_list:
-            return  # Esperar hasta tener puntos
+            return
 
         e = self.q0 - self.qd
         dist_to_target = np.linalg.norm(e)
@@ -89,18 +102,18 @@ class Control_Trajectory(Node):
                 self.publisher.publish(Twist())  # Stop robot
                 return
 
-        # Control law
+        # Ley de control
         matrix_D = np.array([
             [np.cos(self.thetha), -self.h * np.sin(self.thetha)],
             [np.sin(self.thetha),  self.h * np.cos(self.thetha)]
         ])
 
-            aux = -self.k * e
+        aux = -self.k * e
 
-            if np.linalg.det(matrix_D) != 0:
-                U = np.linalg.inv(matrix_D) @ aux
-            else:
-                U = np.array([[0.0], [0.0]])
+        if np.linalg.det(matrix_D) != 0:
+            U = np.linalg.inv(matrix_D) @ aux
+        else:
+            U = np.array([[0.0], [0.0]])
 
         self.twist.linear.x = float(U[0])
         self.twist.angular.z = float(U[1])

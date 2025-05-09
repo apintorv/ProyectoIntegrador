@@ -11,7 +11,8 @@ class qd_Node(Node):
                 
         self.publisher = self.create_publisher(Vector3, "/qd", 1)
         
-        self.timer = self.create_timer(0.1, self.timer_callback)
+        # self.timer = self.create_timer(0.1, self.timer_callback)
+        self.timer = self.create_timer(10, self.timer_callback)
         
         self.qd = Vector3()
         
