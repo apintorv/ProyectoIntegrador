@@ -4,56 +4,7 @@ from geometry_msgs.msg import Twist
 from std_msgs.msg import Float32MultiArray
 import numpy as np
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy
-
-def spline_natural_with_derivative(x, y, num_points=50):
-    n = len(x)
-    h = [x[i+1] - x[i] for i in range(n - 1)]
-
-    # Matriz tridiagonal
-    A = np.zeros((n, n))
-    b = np.zeros(n)
-    A[0, 0] = 1
-    A[-1, -1] = 1
-
-    for i in range(1, n - 1):
-        A[i, i-1] = h[i-1]
-        A[i, i] = 2 * (h[i-1] + h[i])
-        A[i, i+1] = h[i]
-        b[i] = 6 * ((y[i+1] - y[i])/h[i] - (y[i] - y[i-1])/h[i-1])
-
-    M = np.linalg.solve(A, b)
-
-    x_dense = []
-    y_dense = []
-    dy_dense = []
-
-    for i in range(n - 1):
-        xi, xi1 = x[i], x[i+1]
-        hi = h[i]
-        Mi, Mi1 = M[i], M[i+1]
-        yi, yi1 = y[i], y[i+1]
-
-        ts = np.linspace(xi, xi1, num_points // (n - 1))
-        for t in ts:
-            a = (Mi1 * (t - xi)**3) / (6 * hi)
-            b_ = (Mi * (xi1 - t)**3) / (6 * hi)
-            c = (yi1/hi - Mi1 * hi / 6) * (t - xi)
-            d = (yi/hi - Mi * hi / 6) * (xi1 - t)
-            y_val = a + b_ + c + d
-
-            # Derivada
-            da = (Mi1 * 3 * (t - xi)**2) / (6 * hi)
-            db = -(Mi * 3 * (xi1 - t)**2) / (6 * hi)
-            dc = (yi1/hi - Mi1 * hi / 6)
-            dd = -(yi/hi - Mi * hi / 6)
-            dy_val = da + db + dc + dd
-
-            x_dense.append(t)
-            y_dense.append(y_val)
-            dy_dense.append(dy_val)
-
-    return x_dense, y_dense, dy_dense
-
+from scipy.interpolate import CubicSpline  # [ADDED]
 
 class Control_Trajectory(Node):
     def __init__(self):
@@ -68,16 +19,16 @@ class Control_Trajectory(Node):
 
         self.twist = Twist()
         self.publisher = self.create_publisher(Twist, "/cmd_vel", 1)
-        self.create_subscription(Twist, '/pose', self.position_callback, qos_profile)
+        self.create_subscription(Twist, '/pose_kalman', self.position_callback, qos_profile)
         self.create_subscription(Float32MultiArray, '/path_array', self.desired_position_callback, qos_profile)
 
         self.qd_list = []
         self.current_target_index = 0
         self.qd = None
-        self.qd_dot = None
         self.q0 = np.array([[0.0, 0.0]]).T
         self.thetha = 0.0
 
+        # Parámetros de control
         self.k = 0.1
         self.h = 0.05
         self.threshold = 0.1
@@ -88,72 +39,111 @@ class Control_Trajectory(Node):
         self.q0 = np.array([[msg.linear.x, msg.linear.y]]).T
         self.thetha = msg.angular.z
 
+    def compute_cubic_spline(self, points, resolution=0.1):  # [ADDED]
+        points = np.array(points)
+        x = points[:, 0]
+        y = points[:, 1]
+        n = len(x)
+
+        # Parametrize by arc length
+        t = np.zeros(n)
+        for i in range(1, n):
+            t[i] = t[i-1] + np.linalg.norm(points[i] - points[i-1])
+
+        # Natural cubic spline
+        cs_x = CubicSpline(t, x, bc_type='natural')
+        cs_y = CubicSpline(t, y, bc_type='natural')
+
+        # Sample dense points along the curve
+        t_dense = np.arange(t[0], t[-1], resolution)
+        x_dense = cs_x(t_dense)
+        y_dense = cs_y(t_dense)
+
+        smooth_path = [np.array([[xi, yi]]).T for xi, yi in zip(x_dense, y_dense)]
+        return smooth_path
+
     def desired_position_callback(self, msg):
         coords = msg.data
         points = [(coords[i], coords[i+1]) for i in range(0, len(coords), 2)]
-        if len(points) < 2:
-            self.get_logger().warn("⚠️ Se necesitan al menos 2 puntos para interpolar.")
+        new_qd_list = [np.array([[x, y]]).T for x, y in points]
+
+        if not new_qd_list:
             return
 
-        x = [p[0] for p in points]
-        y = [p[1] for p in points]
-        t = list(range(len(points)))  # parámetro artificial
+        # Función para verificar si dos trayectorias son similares
+        def paths_are_similar(old_list, new_list, tolerance=0.05):
+            if len(old_list) != len(new_list):
+                return False
+            for p1, p2 in zip(old_list, new_list):
+                if np.linalg.norm(p1 - p2) > tolerance:
+                    return False
+            return True
 
-        _, x_interp, dx_interp = spline_natural_with_derivative(t, x)
-        _, y_interp, dy_interp = spline_natural_with_derivative(t, y)
+        # Si el nuevo path es similar al anterior, y no hemos terminado, continuar sin reiniciar
+        if paths_are_similar(self.qd_list, new_qd_list) and self.qd is not None:
+            self.get_logger().info("🔁 Path similar al anterior. Continuando sin reiniciar.")
+            return
 
-        interpolated_points = [
-            (np.array([[xi, yi]]).T, np.array([[dxi, dyi]]).T)
-            for xi, yi, dxi, dyi in zip(x_interp, y_interp, dx_interp, dy_interp)
-        ]
+        # Saltar puntos demasiado cercanos a la posición actual
+        min_distance = 0.05  # 5 cm
+        index = 0
+        for i, pt in enumerate(new_qd_list):
+            dist = np.linalg.norm(self.q0 - pt)
+            if dist > min_distance:
+                index = i
+                break
+        else:
+            self.get_logger().info("⚠️ Todos los puntos están demasiado cerca. No se actualiza trayectoria.")
+            return  # No hay puntos válidos
 
-        self.qd_list = interpolated_points
-        self.current_target_index = 0
-        self.qd, self.qd_dot = self.qd_list[0]
+        # Interpolate smooth path with cubic splines [MODIFIED]
+        raw_points = [(pt[0, 0], pt[1, 0]) for pt in new_qd_list]
+        self.qd_list = self.compute_cubic_spline(raw_points, resolution=0.05)  # [MODIFIED]
+        self.current_target_index = 0  # Reset index to start of smooth path [MODIFIED]
+        self.qd = self.qd_list[self.current_target_index]
 
-        self.get_logger().info(f'🛣️ Trayectoria interpolada con {len(self.qd_list)} puntos.')
+        self.get_logger().info(f'🛣️ New path received with {len(self.qd_list)} waypoints (smoothed).')
+        self.get_logger().info(f'📍 Robot at: {self.q0.T}')
+        self.get_logger().info(f'➡️ Starting at index {self.current_target_index}: {self.qd.T}')
 
     def timer_callback(self):
-        if not self.qd_list or self.current_target_index >= len(self.qd_list):
-            return
-
-        if self.qd is None or self.qd_list:
+        if self.qd is None or not self.qd_list:
             return
 
         e = self.q0 - self.qd
         dist_to_target = np.linalg.norm(e)
 
+        self.get_logger().info(f'🎯 Target: {self.qd.T} | 📍 Current: {self.q0.T} | 📏 Dist: {dist_to_target:.3f}')
+
         if dist_to_target < self.threshold:
             self.get_logger().info(f'✅ Reached point {self.current_target_index + 1}/{len(self.qd_list)}')
             self.current_target_index += 1
+
             if self.current_target_index < len(self.qd_list):
-                self.qd, self.qd_dot = self.qd_list[self.current_target_index]
+                self.qd = self.qd_list[self.current_target_index]
                 self.get_logger().info(f'➡️ Next target: {self.qd.T}')
             else:
                 self.get_logger().info('🏁 All waypoints reached. Stopping robot.')
                 self.qd = None
-                self.publisher.publish(Twist())
+                self.publisher.publish(Twist())  # Stop robot
                 return
 
-        # Control: feedforward + feedback
+        # Ley de control
         matrix_D = np.array([
             [np.cos(self.thetha), -self.h * np.sin(self.thetha)],
             [np.sin(self.thetha),  self.h * np.cos(self.thetha)]
         ])
 
-        u_ff = self.qd_dot
-        u_fb = -self.k * e
-        u_total = u_ff + u_fb
+        aux = -self.k * e
 
         if np.linalg.det(matrix_D) != 0:
-            U = np.linalg.inv(matrix_D) @ u_total
+            U = np.linalg.inv(matrix_D) @ aux
         else:
             U = np.array([[0.0], [0.0]])
 
         self.twist.linear.x = float(U[0])
         self.twist.angular.z = float(U[1])
         self.publisher.publish(self.twist)
-
 
 def main(args=None):
     rclpy.init(args=args)
