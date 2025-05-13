@@ -30,7 +30,7 @@ class Control_Trajectory(Node):
 
         self.k = 0.1
         self.h = 0.05
-        self.total_traj_time = 10.0  # Trajectory duration in seconds
+        self.total_traj_time = 10.0  # Duration to traverse trajectory in seconds
         self.start_time = None
 
         self.timer_period = 0.01  # seconds
@@ -40,15 +40,30 @@ class Control_Trajectory(Node):
         self.q0 = np.array([[msg.linear.x, msg.linear.y]]).T
         self.thetha = msg.angular.z
 
-    def compute_cubic_spline(self, points):  # No spatial resolution used
-        points = np.array(points)
+    def compute_cubic_spline(self, points):
+        # Remove consecutive duplicate points (or nearly identical)
+        filtered_points = [points[0]]
+        for p in points[1:]:
+            if np.linalg.norm(np.array(p) - np.array(filtered_points[-1])) > 1e-6:
+                filtered_points.append(p)
+
+        points = np.array(filtered_points)
         x = points[:, 0]
         y = points[:, 1]
         n = len(x)
 
+        if n < 2:
+            self.get_logger().warn("❗ Not enough unique points for spline.")
+            return []
+
+        # Generate arc-length parameter t
         t = np.zeros(n)
         for i in range(1, n):
-            t[i] = t[i-1] + np.linalg.norm(points[i] - points[i-1])
+            t[i] = t[i - 1] + np.linalg.norm(points[i] - points[i - 1])
+
+        if np.any(np.diff(t) <= 0):
+            self.get_logger().error("❌ t is not strictly increasing. Aborting spline.")
+            return []
 
         cs_x = CubicSpline(t, x, bc_type='natural')
         cs_y = CubicSpline(t, y, bc_type='natural')
@@ -63,43 +78,23 @@ class Control_Trajectory(Node):
 
     def desired_position_callback(self, msg):
         coords = msg.data
-        points = [(coords[i], coords[i+1]) for i in range(0, len(coords), 2)]
-        new_qd_list = [np.array([[x, y]]).T for x, y in points]
+        points = [(coords[i], coords[i + 1]) for i in range(0, len(coords), 2)]
 
-        if not new_qd_list:
+        if not points:
             return
 
-        def paths_are_similar(old_list, new_list, tolerance=0.05):
-            if len(old_list) != len(new_list):
-                return False
-            for p1, p2 in zip(old_list, new_list):
-                if np.linalg.norm(p1 - p2) > tolerance:
-                    return False
-            return True
+        # Insert current position at the start of the trajectory
+        current_pos = (self.q0[0, 0], self.q0[1, 0])
+        full_points = [current_pos] + points
 
-        if paths_are_similar(self.qd_list, new_qd_list) and self.qd is not None:
-            self.get_logger().info("🔁 Path similar al anterior. Continuando sin reiniciar.")
-            return
-
-        min_distance = 0.05
-        index = 0
-        for i, pt in enumerate(new_qd_list):
-            dist = np.linalg.norm(self.q0 - pt)
-            if dist > min_distance:
-                index = i
-                break
-        else:
-            self.get_logger().info("⚠️ Todos los puntos están demasiado cerca. No se actualiza trayectoria.")
-            return
-
-        raw_points = [(pt[0, 0], pt[1, 0]) for pt in new_qd_list]
+        raw_points = [(x, y) for x, y in full_points]
         self.qd_list = self.compute_cubic_spline(raw_points)
         self.current_target_index = 0
         self.qd = self.qd_list[0]
         self.start_time = self.get_clock().now()
 
-        self.get_logger().info(f'🛣️ New path received with {len(self.qd_list)} waypoints (time-based).')
-        self.get_logger().info(f'📍 Robot at: {self.q0.T}')
+        self.get_logger().info(f'🛣️ New time-aligned path with {len(self.qd_list)} waypoints.')
+        self.get_logger().info(f'📍 Start position: {self.q0.T}')
         self.get_logger().info(f'🕒 Total trajectory time: {self.total_traj_time}s')
 
     def timer_callback(self):
@@ -111,7 +106,7 @@ class Control_Trajectory(Node):
         index = int(fraction * len(self.qd_list))
 
         if index >= len(self.qd_list):
-            self.get_logger().info('🏁 Trajectory completed by time. Stopping robot.')
+            self.get_logger().info('🏁 Trajectory completed. Stopping robot.')
             self.qd = None
             self.publisher.publish(Twist())
             return
