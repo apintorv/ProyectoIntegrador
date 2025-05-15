@@ -1,6 +1,6 @@
 import rclpy
 from rclpy.node import Node
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import Pose2D, Twist  # Changed import
 from std_msgs.msg import Bool
 import numpy as np
 import math
@@ -11,17 +11,11 @@ class Position_Node(Node):
         self.get_logger().info("Start position node")
 
         self.subscriber = self.create_subscription(Twist, "/vel_raw", self.callback, 1)
-        self.velPublisher = self.create_publisher(Twist, "/pose", 1)
-        # agrege esto
-        #self.subscriber_alineado = self.create_subscription(Bool, "/alineado", self.alineado_callback, 1)
+        self.posePublisher = self.create_publisher(Pose2D, "/pose", 1)  # Changed publisher type
 
-        self.q = np.array([[0, 0, 0]]).T  # Vector de estados q = [x,y,theta]
-        
+        self.q = np.array([[0, 0, 0]]).T  # State vector q = [x, y, theta]
         self.h = 0.05
-        
-        self.pose = Twist()
-        #self.decision = Bool()
-        
+        self.pose = Pose2D()  # Changed to Pose2D
         self.last_time = self.get_clock().now()
         self.timer = self.create_timer(0.001, self.timer_callback)
 
@@ -30,26 +24,17 @@ class Position_Node(Node):
         y = float(self.q[1][0])
         theta = float(self.q[2][0])
 
-        # Position
-        self.pose.linear.x = x
-        self.pose.linear.y = y
-        self.pose.angular.z = theta
-        self.velPublisher.publish(self.pose)
+        # Set Pose2D values
+        self.pose.x = x
+        self.pose.y = y
+        self.pose.theta = theta
+        self.posePublisher.publish(self.pose)
 
         self.get_logger().info(
             f"Pose → x: {x:.2f}, y: {y:.2f}, θ: {theta:.2f}"
         )
-    # agrege esto
-    # def alineado_callback(self, msg):  
-    #     self.decision.data = msg.data
-    #     if self.decision.data:
-    #         self.get_logger().info("Alineado")
-    #     else:
-    #         self.get_logger().info("No alineado")
-
 
     def callback(self, msg):
-        #if self.decision.data:     # agrege esto
         # Compute time delta
         current_time = self.get_clock().now()
         dt = (current_time - self.last_time).nanoseconds * 1e-9
@@ -63,12 +48,12 @@ class Position_Node(Node):
         u = np.array([[v, omega]]).T
         gx = np.array([
             [np.cos(theta), -self.h * np.sin(theta)],
-            [np.sin(theta), self.h * np.cos(theta) ],
-            [          0,                          1             ]
+            [np.sin(theta), self.h * np.cos(theta)],
+            [0, 1]
         ])
         
-        self.q = self.q + dt * (gx @ u)  
-        
+        self.q = self.q + dt * (gx @ u)
+
 def main(args=None):
     rclpy.init(args=args)
     position = Position_Node()
