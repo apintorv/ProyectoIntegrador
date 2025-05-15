@@ -7,7 +7,7 @@ from tf2_ros import TransformListener, Buffer
 import numpy as np
 import math
 
-MAP_SIZE = 401  # 401x401 grid → centro exacto en (200,200)
+MAP_SIZE = 151  # 401x401 grid → centro exacto en (200,200)
 RESOLUTION = 0.05  # 5cm por celda
 MAX_PROB = 1.0
 MIN_PROB = 0.0
@@ -44,6 +44,7 @@ class OccupancyGridNode(Node):
                 dx = tf.transform.translation.x
                 dy = tf.transform.translation.y
                 yaw = self.get_yaw_from_quaternion(tf.transform.rotation)
+                yaw = (yaw + 2*math.pi) % (2*math.pi)
                 x_robot = math.cos(yaw) * x_lidar - math.sin(yaw) * y_lidar + dx
                 y_robot = math.sin(yaw) * x_lidar + math.cos(yaw) * y_lidar + dy
 
@@ -55,8 +56,8 @@ class OccupancyGridNode(Node):
 
     def update_map_ray(self, x0, y0, x1, y1):
         def to_cell(x, y):
-            i = int((x / RESOLUTION)) + MAP_SIZE // 2
-            j = int((y / RESOLUTION)) + MAP_SIZE // 2
+            i = int(x / RESOLUTION) + MAP_SIZE // 2  # x → column
+            j = MAP_SIZE // 2 - int(y / RESOLUTION)  # y → row (invert!)
             return i, j
 
         x0_i, y0_i = to_cell(x0, y0)

@@ -13,7 +13,7 @@ class AStarPlanner(Node):
         
         self.map_sub = self.create_subscription(OccupancyGrid, '/map', self.map_callback, 10)
         self.create_subscription(Vector3, '/qd', self.desired_position_callback, 10)
-        self.create_subscription(Twist, '/pose', self.position_callback, 1)
+        self.create_subscription(Twist, '/pose_kalman', self.position_callback, 10)
 
         self.path_pub = self.create_publisher(Path, '/planned_path', 10)
         self.pose_array_pub = self.create_publisher(Float32MultiArray, '/path_array', 10)
@@ -49,12 +49,16 @@ class AStarPlanner(Node):
         if new_hash == self.last_map_hash:
             return  # No cambios → no replanear
 
+        if self.current_start and self.current_goal:
+            if not self.is_path_obstructed(new_map_data):
+                self.get_logger().info('✅ Map changed, but current path is still valid. No replanning needed.')
+                return  # El camino sigue siendo válido
+
         self.map_info = msg.info
         self.map = new_map_data
         self.last_map_hash = new_hash
 
         self.get_logger().info('🗺️ Map updated. Replanning...')
-
         if self.qd is not None and self.q0 is not None:
             self.plan_path()
 
@@ -124,7 +128,8 @@ class AStarPlanner(Node):
         else:
             self.get_logger().info("❌ No path found")
 
-    def a_star_algorithm(self, start, goal):
+    def a_star_algorithm(self, start, goal, custom_map=None):
+        grid = custom_map if custom_map is not None else self.map
         open_list = []
         heapq.heappush(open_list, (0, start))
         came_from = {}
@@ -136,8 +141,13 @@ class AStarPlanner(Node):
             if current == goal:
                 return self.reconstruct_path(came_from, current)
             for neighbor in self.get_neighbors(current):
-                if self.is_occupied(*neighbor):
-                    continue
+                if grid[neighbor[1], neighbor[0]] > 50:
+                    continue  # Skip obstacle cells
+
+                # Apply a penalty if a neighbor is too close to an obstacle
+                if self.is_too_close_to_obstacle(neighbor):
+                    continue  # Skip this neighbor to avoid too-close paths
+
                 tentative_g_score = g_score[current] + 1
                 if neighbor not in g_score or tentative_g_score < g_score[neighbor]:
                     came_from[neighbor] = current
@@ -176,7 +186,6 @@ class AStarPlanner(Node):
         array_msg = Float32MultiArray()
         path_coords = []
 
-        # Añadir posición real del robot si está disponible
         if self.robot_pose_world is not None:
             self.get_logger().info("Robot position received.")
             wx, wy = self.robot_pose_world
@@ -198,7 +207,6 @@ class AStarPlanner(Node):
             path_msg.poses.append(pose)
             path_coords.extend([wx, wy])
 
-        # Resto del camino desde path[1:]
         for (x, y) in path[1:]:
             wx, wy = self.map_to_world(x, y)
             pose = PoseStamped()
@@ -216,6 +224,36 @@ class AStarPlanner(Node):
         self.get_logger().info(f'📤 Path array published with {len(path_coords)//2} points.')
         for i in range(0, len(path_coords), 2):
             self.get_logger().info(f'📍 Waypoint: ({path_coords[i]:.2f}, {path_coords[i+1]:.2f})')
+
+    def is_too_close_to_obstacle(self, cell):
+        x, y = cell
+        # Define a "close enough" distance to obstacles (e.g., 1 cell)
+        buffer_radius = 3
+        for dx in range(-buffer_radius, buffer_radius + 1):
+            for dy in range(-buffer_radius, buffer_radius + 1):
+                nx, ny = x + dx, y + dy
+                if 0 <= nx < self.map.shape[1] and 0 <= ny < self.map.shape[0]:
+                    if self.map[ny, nx] > 30:  # Check surrounding cells for obstacles
+                        return True
+        return False
+
+    def is_path_obstructed(self, new_map):
+        """Devuelve True si el nuevo mapa tiene un obstáculo en la ruta actual."""
+        if self.current_start is None or self.current_goal is None:
+            return True  # No hay datos para comparar
+
+        # Verifica si sigue existiendo un camino viable en el nuevo mapa
+        path = self.a_star_algorithm(self.current_start, self.current_goal, custom_map=new_map)
+        if path is None:
+            return True  # Path is obstructed
+
+        # Apply an extra margin check on the path to ensure it doesn't get too close to obstacles
+        for (x, y) in path:
+            if self.is_too_close_to_obstacle((x, y)):
+                self.get_logger().info(f"⚠️ Path is too close to an obstacle at ({x}, {y}). Replanning...")
+                return True  # Avoid this path
+
+        return False  # Path is safe
 
 def main():
     rclpy.init()

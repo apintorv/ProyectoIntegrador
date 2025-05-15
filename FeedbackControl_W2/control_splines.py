@@ -30,7 +30,7 @@ class Control_Trajectory(Node):
 
         self.k = 0.1
         self.h = 0.05
-        self.total_traj_time = 10.0  # Duration to traverse trajectory in seconds
+        self.total_traj_time = 30.0  # Duration to traverse trajectory in seconds
         self.start_time = None
 
         self.timer_period = 0.01  # seconds
@@ -38,10 +38,10 @@ class Control_Trajectory(Node):
 
     def position_callback(self, msg):
         self.q0 = np.array([[msg.linear.x, msg.linear.y]]).T
-        self.thetha = msg.angular.z
+        #self.thetha = msg.angular.z
+        self.thetha = msg.angular.z + np.pi / 2  # or - np.pi / 2, test what works
 
     def compute_cubic_spline(self, points):
-        # Remove consecutive duplicate points (or nearly identical)
         filtered_points = [points[0]]
         for p in points[1:]:
             if np.linalg.norm(np.array(p) - np.array(filtered_points[-1])) > 1e-6:
@@ -56,7 +56,6 @@ class Control_Trajectory(Node):
             self.get_logger().warn("❗ Not enough unique points for spline.")
             return []
 
-        # Generate arc-length parameter t
         t = np.zeros(n)
         for i in range(1, n):
             t[i] = t[i - 1] + np.linalg.norm(points[i] - points[i - 1])
@@ -76,30 +75,38 @@ class Control_Trajectory(Node):
         smooth_path = [np.array([[xi, yi]]).T for xi, yi in zip(x_dense, y_dense)]
         return smooth_path
 
+    def generate_transition_path(self, q0, q1, steps=10):
+        return [q0 + (i / steps) * (q1 - q0) for i in range(1, steps + 1)]
+
     def desired_position_callback(self, msg):
         coords = msg.data
-        points = [(coords[i], coords[i + 1]) for i in range(0, len(coords), 2)]
-
-        if not points:
+        if not coords or len(coords) < 2:
+            self.get_logger().warn("⚠️ Empty or malformed path received.")
             return
 
-        # Insert current position at the start of the trajectory
-        current_pos = (self.q0[0, 0], self.q0[1, 0])
-        full_points = [current_pos] + points
+        points = [(coords[i], coords[i + 1]) for i in range(0, len(coords), 2)]
+        raw_points = [(x, y) for x, y in points]
+        new_qd_list = self.compute_cubic_spline(raw_points)
 
-        raw_points = [(x, y) for x, y in full_points]
-        self.qd_list = self.compute_cubic_spline(raw_points)
+        if not new_qd_list:
+            return
+
+        # Smooth transition from current position to new path start
+        transition = self.generate_transition_path(self.q0, new_qd_list[0], steps=10)
+        self.qd_list = transition + new_qd_list
+
+        # Do not reset start_time!
         self.current_target_index = 0
         self.qd = self.qd_list[0]
-        self.start_time = self.get_clock().now()
 
-        self.get_logger().info(f'🛣️ New time-aligned path with {len(self.qd_list)} waypoints.')
-        self.get_logger().info(f'📍 Start position: {self.q0.T}')
-        self.get_logger().info(f'🕒 Total trajectory time: {self.total_traj_time}s')
+        self.get_logger().info(f'🔄 Path updated mid-trajectory. {len(self.qd_list)} total points.')
 
     def timer_callback(self):
-        if self.qd is None or not self.qd_list or self.start_time is None:
+        if self.qd is None or not self.qd_list:
             return
+
+        if self.start_time is None:
+            self.start_time = self.get_clock().now()
 
         elapsed_time = (self.get_clock().now() - self.start_time).nanoseconds / 1e9
         fraction = elapsed_time / self.total_traj_time

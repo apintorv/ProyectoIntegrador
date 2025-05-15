@@ -1,6 +1,7 @@
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
+from std_msgs.msg import Bool
 import numpy as np
 import math
 
@@ -11,12 +12,15 @@ class Position_Node(Node):
 
         self.subscriber = self.create_subscription(Twist, "/vel_raw", self.callback, 1)
         self.velPublisher = self.create_publisher(Twist, "/pose", 1)
+        # agrege esto
+        #self.subscriber_alineado = self.create_subscription(Bool, "/alineado", self.alineado_callback, 1)
 
         self.q = np.array([[0, 0, 0]]).T  # Vector de estados q = [x,y,theta]
         
         self.h = 0.05
         
         self.pose = Twist()
+        #self.decision = Bool()
         
         self.last_time = self.get_clock().now()
         self.timer = self.create_timer(0.001, self.timer_callback)
@@ -35,8 +39,17 @@ class Position_Node(Node):
         self.get_logger().info(
             f"Pose → x: {x:.2f}, y: {y:.2f}, θ: {theta:.2f}"
         )
-        
+    # agrege esto
+    # def alineado_callback(self, msg):  
+    #     self.decision.data = msg.data
+    #     if self.decision.data:
+    #         self.get_logger().info("Alineado")
+    #     else:
+    #         self.get_logger().info("No alineado")
+
+
     def callback(self, msg):
+        #if self.decision.data:     # agrege esto
         # Compute time delta
         current_time = self.get_clock().now()
         dt = (current_time - self.last_time).nanoseconds * 1e-9
