@@ -12,37 +12,17 @@ def generate_launch_description():
         'ms200_scan.launch.py'
     )
 
-    description_launch = os.path.join(
-        get_package_share_directory('yahboomcar_description'),
-        'launch',
-        'description_launch.py'
-    )
-
     return LaunchDescription([
-
-        # Step 1: Run the Mcnamu_driver node immediately
-        ExecuteProcess(
-            cmd=['ros2', 'run', 'yahboomcar_bringup', 'Mcnamu_driver'],
-            output='screen'
-        ),
 
         # Step 2: After 10 seconds, launch the LIDAR
         TimerAction(
-            period=10.0,
+            period=0.0,
             actions=[
                 IncludeLaunchDescription(
                     PythonLaunchDescriptionSource(lidar_launch)
                 )
             ]
-        ),
-
-        # Step 3: After 20 seconds, launch the robot description
-        TimerAction(
-            period=20.0,
-            actions=[
-                IncludeLaunchDescription(
-                    PythonLaunchDescriptionSource(description_launch)
-                )
-            ]
         )
+        
+        
     ])

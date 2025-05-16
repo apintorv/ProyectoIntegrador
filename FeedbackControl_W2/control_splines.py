@@ -1,6 +1,6 @@
 import rclpy
 from rclpy.node import Node
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import Twist, Pose2D
 from std_msgs.msg import Float32MultiArray
 import numpy as np
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy
@@ -19,7 +19,9 @@ class Control_Trajectory(Node):
 
         self.twist = Twist()
         self.publisher = self.create_publisher(Twist, "/cmd_vel", 1)
-        self.create_subscription(Twist, '/pose_kalman', self.position_callback, qos_profile)
+
+        # ✅ SUBSCRIBE TO Pose2D for pose_kalman
+        self.create_subscription(Pose2D, '/pose_kalman', self.position_callback, qos_profile)
         self.create_subscription(Float32MultiArray, '/path_array', self.desired_position_callback, qos_profile)
 
         self.qd_list = []
@@ -36,10 +38,9 @@ class Control_Trajectory(Node):
         self.timer_period = 0.01  # seconds
         self.timer = self.create_timer(self.timer_period, self.timer_callback)
 
-    def position_callback(self, msg):
-        self.q0 = np.array([[msg.linear.x, msg.linear.y]]).T
-        #self.thetha = msg.angular.z
-        self.thetha = msg.angular.z + np.pi / 2  # or - np.pi / 2, test what works
+    def position_callback(self, msg: Pose2D):
+        self.q0 = np.array([[msg.x, msg.y]]).T
+        self.thetha = msg.theta + np.pi / 2  # or - np.pi / 2, test what works
 
     def compute_cubic_spline(self, points):
         filtered_points = [points[0]]

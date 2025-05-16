@@ -1,0 +1,5 @@
+Desired_Position_Node:
+  ros__parameters:
+    desired_x: 0.0
+    desired_y: 0.0
+    desired_z: 0.0

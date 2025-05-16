@@ -25,21 +25,23 @@ def generate_launch_description():
         output='screen'
     )
     
-    static_tf_pub = Node(
+
+    static_link = Node(
         package='tf2_ros',
         executable='static_transform_publisher',
-        name='static_transform_base_to_lidar',
-        arguments=['0', '0', '0', '0', '0', '0', 'base_link', 'lidar_link']
+        name='static_transform_odom_to_map',
+        arguments=['0', '0', '0', '0', '0', '0', 'odom', 'lidar_link']
     )
-    
+
+
     static_odom_map = Node(
         package='tf2_ros',
         executable='static_transform_publisher',
         name='static_transform_odom_to_map',
-        arguments=['0', '0', '0', '0', '0', '0', 'odom', 'map']
+        arguments=['0', '0', '0', '0', '0', '0', 'map', 'odom']
     )
 
-    qd_node_timer = TimerAction(
+    qd_node_timer = TimerAction(    ##this node wont be used in the real challenge
         period=10.0,
         actions=[
             Node(
@@ -85,7 +87,7 @@ def generate_launch_description():
         position_node,
         qd_node_timer,
         kalman_node_timer,
-        static_tf_pub,
+        static_link,
         static_odom_map
         # a_star_node,
         # control_trajectory_node,
