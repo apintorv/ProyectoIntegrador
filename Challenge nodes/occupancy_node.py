@@ -8,7 +8,7 @@ import numpy as np
 import math
 
 MAP_SIZE = 151  # 151x151 grid
-RESOLUTION = 0.05  # 5cm per cell
+RESOLUTION = 0.15  # 5cm per cell
 MAX_PROB = 1.0
 MIN_PROB = 0.0
 
@@ -26,10 +26,13 @@ class OccupancyGridNode(Node):
         # Center the map around (0,0)
         self.origin_x = -MAP_SIZE // 2
         self.origin_y = -MAP_SIZE // 2
+        
+        self.timer_period = 0.033  # seconds
+        self.timer = self.create_timer(self.timer_period, self.timer_callback)
 
     def scan_callback(self, msg):
         try:
-            tf = self.tf_buffer.lookup_transform('base_link', 'lidar_link', rclpy.time.Time())
+            tf = self.tf_buffer.lookup_transform('odom', 'lidar_link', rclpy.time.Time())
         except Exception as e:
             self.get_logger().warn(f"Transform not available: {e}")
             return
@@ -50,8 +53,6 @@ class OccupancyGridNode(Node):
 
                 self.update_map_ray(0.0, 0.0, x_robot, y_robot)
             angle += msg.angle_increment
-
-        self.publish_map()
 
     def update_map_ray(self, x0, y0, x1, y1):
         def to_cell(x, y):
@@ -104,7 +105,7 @@ class OccupancyGridNode(Node):
         cosy_cosp = 1 - 2 * (q.y * q.y + q.z * q.z)
         return math.atan2(siny_cosp, cosy_cosp)
 
-    def publish_map(self):
+    def timer_callback(self):
         msg = OccupancyGrid()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = 'map'
@@ -116,12 +117,13 @@ class OccupancyGridNode(Node):
         msg.data = [int(p * 100) if 0.0 <= p <= 1.0 else -1 for p in self.map.flatten()]
         self.map_pub.publish(msg)
 
-def main():
-    rclpy.init()
+def main(args=None):
+    rclpy.init(args=args)
     node = OccupancyGridNode()
     rclpy.spin(node)
-    node.destroy_node()
     rclpy.shutdown()
 
 if __name__ == '__main__':
     main()
+
+

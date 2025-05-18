@@ -16,6 +16,11 @@ def generate_launch_description():
     # Parameters YAML path
     pkg_share = get_package_share_directory('feedback_control')
     parameters = os.path.join(pkg_share, 'config', 'params.yaml')
+    
+    urdf_path = os.path.join(pkg_share, 'urdf', 'yahboomcar.urdf')
+    
+    with open(urdf_path, 'r') as infp:
+        robot_desc = infp.read()
 
     # Nodes
     position_node = Node(
@@ -25,12 +30,26 @@ def generate_launch_description():
         output='screen'
     )
     
+    static_tf = Node(
+    package='tf2_ros',
+    executable='static_transform_publisher',
+    name='base_link_to_footprint',
+    arguments=['0', '0', '0', '0', '0', '0', 'base_footprint', 'base_link']
+    )
+    
+    static_link_lidar = Node(
+        package='tf2_ros',
+        executable='static_transform_publisher',
+        name='static_transform_odom_to_map',
+        arguments=['0', '0', '0', '0', '0', '0', 'base_link', 'lidar_link']
+    )
+    
 
     static_link = Node(
         package='tf2_ros',
         executable='static_transform_publisher',
         name='static_transform_odom_to_map',
-        arguments=['0', '0', '0', '0', '0', '0', 'odom', 'lidar_link']
+        arguments=['0', '0', '0', '0', '0', '0', 'odom', 'base_footprint']
     )
 
 
@@ -41,7 +60,7 @@ def generate_launch_description():
         arguments=['0', '0', '0', '0', '0', '0', 'map', 'odom']
     )
 
-    qd_node_timer = TimerAction(    ##this node wont be used in the real challenge
+    qd_node_timer = TimerAction(
         period=10.0,
         actions=[
             Node(
@@ -84,9 +103,20 @@ def generate_launch_description():
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(lidar_launch_path)
         ),
-        position_node,
-        qd_node_timer,
-        kalman_node_timer,
+        Node(
+            package='robot_state_publisher',
+            executable='robot_state_publisher',
+            name='robot_state_publisher',
+            output='screen',
+            parameters=[{'robot_description': robot_desc,
+                        'use_sim_time': True
+                        }],
+        ),
+        # position_node,
+        # qd_node_timer,
+        # kalman_node_timer,
+        static_tf,
+        static_link_lidar,
         static_link,
         static_odom_map
         # a_star_node,

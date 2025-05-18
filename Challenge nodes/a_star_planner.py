@@ -10,17 +10,18 @@ import hashlib
 class AStarPlanner(Node):
     def __init__(self):
         super().__init__('a_star_planner')
-        
-        self.map_sub = self.create_subscription(OccupancyGrid, '/map', self.map_callback, 10)
+
+        # Subscribe to the fused map topic
+        self.map_sub = self.create_subscription(OccupancyGrid, '/mixed_map', self.map_callback, 10)
         self.create_subscription(Vector3, '/qd', self.desired_position_callback, 10)
         self.create_subscription(Pose2D, '/pose_kalman', self.position_callback, 10)
 
         self.path_pub = self.create_publisher(Path, '/planned_path', 10)
         self.pose_array_pub = self.create_publisher(Float32MultiArray, '/path_array', 10)
-        
-        self.qd = None  # goal in map coordinates
-        self.q0 = None  # start in map coordinates
-        self.robot_pose_world = None  # actual robot position in world
+
+        self.qd = None
+        self.q0 = None
+        self.robot_pose_world = None
 
         self.map = None
         self.map_info = None
@@ -83,7 +84,7 @@ class AStarPlanner(Node):
     def desired_position_callback(self, msg):
         x_world = msg.x
         y_world = msg.y
-        
+
         self.get_logger().info(f'Received desired goal: {x_world, y_world}')
 
         if self.map_info is None:
@@ -99,7 +100,8 @@ class AStarPlanner(Node):
                 self.plan_path()
 
     def is_occupied(self, x, y):
-        return self.map[y, x] > 50
+        # Slightly lower threshold for mixed map safety
+        return self.map[y, x] > 40
 
     def plan_path(self):
         if self.map_info is None or self.map is None:
@@ -140,7 +142,7 @@ class AStarPlanner(Node):
             if current == goal:
                 return self.reconstruct_path(came_from, current)
             for neighbor in self.get_neighbors(current):
-                if grid[neighbor[1], neighbor[0]] > 50:
+                if grid[neighbor[1], neighbor[0]] > 40:
                     continue
                 if self.is_too_close_to_obstacle(neighbor):
                     continue

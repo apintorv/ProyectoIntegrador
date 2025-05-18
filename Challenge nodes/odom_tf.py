@@ -20,7 +20,7 @@ class OdoTfPublisher(Node):
 
         t.header.stamp = self.get_clock().now().to_msg()
         t.header.frame_id = 'odom'      # parent frame
-        t.child_frame_id = 'base_link'  # child frame (robot base)
+        t.child_frame_id = 'lidar_link'  # child frame (robot base)
 
         t.transform.translation.x = msg.x
         t.transform.translation.y = msg.y
