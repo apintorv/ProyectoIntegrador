@@ -1,8 +1,11 @@
 import rclpy
 from rclpy.node import Node
-from geometry_msgs.msg import Twist, Vector3
+from geometry_msgs.msg import Twist, Vector3, Pose2D
 import numpy as np
-from msgs_circle.msg import Circle
+#from msgs_circle.msg import Circle
+from geometry_msgs.msg import Twist, PoseStamped
+from nav_msgs.msg import Odometry
+from tf_transformations import euler_from_quaternion
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy, QoSDurabilityPolicy
 
 class Control_Node(Node):
@@ -19,11 +22,12 @@ class Control_Node(Node):
         self.twist = Twist()
         
         self.publisher = self.create_publisher(Twist, "/cmd_vel", 1)
-        self.create_subscription(Twist, '/pose_kalman', self.position_callback, qos_profile)
+        #self.create_subscription(Odometry, '/odom', self.position_callback, qos_profile)
+        # self.create_subscription(Twist, '/pose', self.position_callback, qos_profile)
+        self.create_subscription(PoseStamped, '/pose_stamped', self.position_callback, qos_profile)
         self.create_subscription(Vector3, '/qd', self.desired_position_callback, qos_profile)
         #self.create_subscription(Circle, '/qd_qddot', self.circle_callback, qos_profile)
 
-           
         self.qd = np.array([[0.0, 0.0]]).T
         self.qd_dot = np.array([[0.0, 0.0]]).T
         # Referencias deseadas
@@ -38,16 +42,39 @@ class Control_Node(Node):
     #def circle_callback(self, msg):
     #    self.qd = np.array([[msg.x, msg.y]]).T 
     #    self.qd_dot = np.array([[msg.x_dot, msg.y_dot]]).T 
+    
+    
+    def wrap_angle(self, angle):
+        """Wrap angle to [-π, π]."""
+        return (angle + np.pi) % (2 * np.pi) - np.pi
         
     def position_callback(self, msg):
+        ##FOR TWIST MESSAGE
         #self.get_logger().info(f'Actual Position: x:{msg.linear.x}, y:{msg.linear.y}, z:{msg.angular.z}')
-        self.q0 = np.array([[msg.linear.x, msg.linear.y]]).T
-        self.thetha = msg.angular.z
+        #self.q0 = np.array([[msg.linear.x, msg.linear.y]]).T           
+        #self.thetha = msg.angular.z                                    
+        
+        
+        ##FOR POSE MSG
+        self.q0 = np.array([[msg.pose.position.x, msg.pose.position.y]]).T 
+        # Convert quaternion to yaw
+        orientation_q = msg.pose.orientation
+        quaternion = (
+            orientation_q.x,
+            orientation_q.y,
+            orientation_q.z,
+            orientation_q.w
+        )
+        _, _, yaw = euler_from_quaternion(quaternion)
+        self.thetha = self.wrap_angle(yaw)
+
+        # self.q0 = np.array([[msg.x, msg.y]]).T
+        # self.thetha = msg.theta
         
     def desired_position_callback(self, msg):
         #self.get_logger().info(f'Desired Position: x:{msg.x}, y:{msg.y}')
         self.qd = np.array([[msg.x, msg.y]]).T          
-        
+
     def timer_callback(self):
         matrix_D = np.array([
             [np.cos(self.thetha), -self.h * np.sin(self.thetha)],
@@ -60,6 +87,9 @@ class Control_Node(Node):
         
         if np.linalg.det(matrix_D) != 0:
             U = np.linalg.inv(matrix_D) @ aux
+
+        U[0][0] = np.clip(U[0][0], -0.1, 0.1)    # linear velocity
+        U[1][0] = np.clip(U[1][0], -0.1, 0.1)    # angular velocity
 
         self.twist.linear.x = U[0][0]
         self.twist.angular.z = U[1][0]

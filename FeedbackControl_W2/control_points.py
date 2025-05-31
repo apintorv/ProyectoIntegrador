@@ -1,8 +1,10 @@
 import rclpy 
 from rclpy.node import Node
-from geometry_msgs.msg import Twist
-from std_msgs.msg import Float32MultiArray
+from geometry_msgs.msg import Twist, PoseStamped
+from std_msgs.msg import Float32MultiArray, Bool
 import numpy as np
+from tf_transformations import euler_from_quaternion
+
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy
 
 class Control_Trajectory(Node):
@@ -18,7 +20,10 @@ class Control_Trajectory(Node):
 
         self.twist = Twist()
         self.publisher = self.create_publisher(Twist, "/cmd_vel", 1)
-        self.create_subscription(Twist, '/pose_kalman', self.position_callback, qos_profile)
+        # self.create_subscription(Twist, '/pose_kalman', self.position_callback, qos_profile)
+        self.create_subscription(PoseStamped, '/pose_stamped', self.position_callback, qos_profile)
+        self.goal_reached_pub = self.create_publisher(Bool, '/goal_reached', 10)
+        
         self.create_subscription(Float32MultiArray, '/path_array', self.desired_position_callback, qos_profile)
 
         self.qd_list = []
@@ -28,15 +33,35 @@ class Control_Trajectory(Node):
         self.thetha = 0.0
 
         # Parámetros de control
-        self.k = 0.1
+        self.k = 0.2
         self.h = 0.05
         self.threshold = 0.1
+        
+        self.goal_reached_sent = False
+
 
         self.timer = self.create_timer(0.01, self.timer_callback)
 
+    def wrap_angle(self, angle):
+        return (angle + np.pi) % (2 * np.pi) - np.pi
+
     def position_callback(self, msg):
-        self.q0 = np.array([[msg.linear.x, msg.linear.y]]).T
-        self.thetha = msg.angular.z
+
+        ##FOR POSE MSG
+        self.q0 = np.array([[msg.pose.position.x, msg.pose.position.y]]).T 
+        # Convert quaternion to yaw
+        orientation_q = msg.pose.orientation
+        quaternion = (
+            orientation_q.x,
+            orientation_q.y,
+            orientation_q.z,
+            orientation_q.w
+        )
+        _, _, yaw = euler_from_quaternion(quaternion)
+        self.thetha = self.wrap_angle(yaw)
+
+        # self.q0 = np.array([[msg.linear.x, msg.linear.y]]).T
+        # self.thetha = msg.angular.z
 
     def desired_position_callback(self, msg):
         coords = msg.data
@@ -98,6 +123,10 @@ class Control_Trajectory(Node):
                 self.get_logger().info(f'➡️ Next target: {self.qd.T}')
             else:
                 self.get_logger().info('🏁 All waypoints reached. Stopping robot.')
+                ###BORRAR
+                self.goal_reached_pub.publish(Bool(data=True))
+                self.goal_reached_sent = True
+                ###BORRAR
                 self.qd = None
                 self.publisher.publish(Twist())  # Stop robot
                 return

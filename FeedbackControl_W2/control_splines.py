@@ -1,10 +1,12 @@
 import rclpy
 from rclpy.node import Node
-from geometry_msgs.msg import Twist, Pose2D
+from geometry_msgs.msg import Twist, Point, PoseStamped
 from std_msgs.msg import Float32MultiArray
+from visualization_msgs.msg import Marker
 import numpy as np
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy
 from scipy.interpolate import CubicSpline
+from tf_transformations import euler_from_quaternion
 
 class Control_Trajectory(Node):
     def __init__(self):
@@ -19,9 +21,9 @@ class Control_Trajectory(Node):
 
         self.twist = Twist()
         self.publisher = self.create_publisher(Twist, "/cmd_vel", 1)
+        self.marker_pub = self.create_publisher(Marker, '/spline_path', 10)
 
-        # ✅ SUBSCRIBE TO Pose2D for pose_kalman
-        self.create_subscription(Pose2D, '/pose_kalman', self.position_callback, qos_profile)
+        self.create_subscription(PoseStamped, '/pose_stamped', self.position_callback, qos_profile)
         self.create_subscription(Float32MultiArray, '/path_array', self.desired_position_callback, qos_profile)
 
         self.qd_list = []
@@ -30,17 +32,28 @@ class Control_Trajectory(Node):
         self.q0 = np.array([[0.0, 0.0]]).T
         self.thetha = 0.0
 
-        self.k = 0.1
+        self.k = 0.3
         self.h = 0.05
-        self.total_traj_time = 30.0  # Duration to traverse trajectory in seconds
+        self.total_traj_time = 30.0
         self.start_time = None
 
-        self.timer_period = 0.01  # seconds
+        self.timer_period = 0.01
         self.timer = self.create_timer(self.timer_period, self.timer_callback)
 
-    def position_callback(self, msg: Pose2D):
-        self.q0 = np.array([[msg.x, msg.y]]).T
-        self.thetha = msg.theta + np.pi / 2  # or - np.pi / 2, test what works
+    def wrap_angle(self, angle):
+        return (angle + np.pi) % (2 * np.pi) - np.pi
+
+    def position_callback(self, msg):
+        self.q0 = np.array([[msg.pose.position.x, msg.pose.position.y]]).T
+        orientation_q = msg.pose.orientation
+        quaternion = (
+            orientation_q.x,
+            orientation_q.y,
+            orientation_q.z,
+            orientation_q.w
+        )
+        _, _, yaw = euler_from_quaternion(quaternion)
+        self.thetha = self.wrap_angle(yaw)
 
     def compute_cubic_spline(self, points):
         filtered_points = [points[0]]
@@ -68,7 +81,7 @@ class Control_Trajectory(Node):
         cs_x = CubicSpline(t, x, bc_type='natural')
         cs_y = CubicSpline(t, y, bc_type='natural')
 
-        num_points = int(self.total_traj_time / self.timer_period)
+        num_points = 300  # 🔽 REDUCIDO PARA SUAVIZAR TRAZADO
         t_dense = np.linspace(t[0], t[-1], num_points)
         x_dense = cs_x(t_dense)
         y_dense = cs_y(t_dense)
@@ -87,20 +100,46 @@ class Control_Trajectory(Node):
 
         points = [(coords[i], coords[i + 1]) for i in range(0, len(coords), 2)]
         raw_points = [(x, y) for x, y in points]
-        new_qd_list = self.compute_cubic_spline(raw_points)
 
+        new_qd_list = self.compute_cubic_spline(raw_points)
         if not new_qd_list:
             return
 
-        # Smooth transition from current position to new path start
         transition = self.generate_transition_path(self.q0, new_qd_list[0], steps=10)
         self.qd_list = transition + new_qd_list
-
-        # Do not reset start_time!
         self.current_target_index = 0
         self.qd = self.qd_list[0]
+        self.start_time = self.get_clock().now()
 
+        self.publish_spline_marker(new_qd_list)
         self.get_logger().info(f'🔄 Path updated mid-trajectory. {len(self.qd_list)} total points.')
+
+    def publish_spline_marker(self, spline_points):
+        marker = Marker()
+        marker.header.frame_id = "map"
+        marker.header.stamp = self.get_clock().now().to_msg()
+        marker.ns = "spline_path"
+        marker.id = 0
+        marker.type = Marker.LINE_STRIP
+        marker.action = Marker.ADD
+
+        marker.pose.orientation.w = 1.0
+        marker.scale.x = 0.05
+        marker.color.r = 0.0
+        marker.color.g = 1.*0
+        marker.color.b = 0.0
+        marker.color.a = 1.0
+
+        marker.points = []
+        for pt in spline_points:
+            pt = pt.flatten()
+            p = Point()
+            p.x = float(pt[0])
+            p.y = float(pt[1])
+            p.z = 0.0
+            marker.points.append(p)
+
+        self.marker_pub.publish(marker)
 
     def timer_callback(self):
         if self.qd is None or not self.qd_list:
@@ -125,6 +164,12 @@ class Control_Trajectory(Node):
         e = self.q0 - self.qd
         dist_to_target = np.linalg.norm(e)
 
+        # if dist_to_target < 0.01:  # 🔸 Umbral para detener movimiento innecesario
+        #     self.twist.linear.x = 0.0
+        #     self.twist.angular.z = 0.0
+        #     self.publisher.publish(self.twist)
+        #     return
+
         self.get_logger().info(f'🎯 Target index: {self.current_target_index} | 📍 Current: {self.q0.T} | 📏 Dist: {dist_to_target:.3f}')
 
         matrix_D = np.array([
@@ -139,12 +184,8 @@ class Control_Trajectory(Node):
         else:
             U = np.array([[0.0], [0.0]])
 
-        v_min = 0.1
-        w_min = 0.1
-
-        self.twist.linear.x = float(np.sign(U[0]) * max(abs(U[0]), v_min))
-        self.twist.angular.z = float(np.sign(U[1]) * max(abs(U[1]), w_min))
-
+        self.twist.linear.x = float(U[0])
+        self.twist.angular.z = float(U[1])
         self.publisher.publish(self.twist)
 
 def main(args=None):
