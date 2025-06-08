@@ -162,9 +162,9 @@ def generate_launch_description():
         # description,
         # position_node,
         localization_launch_include,
-        qd_node_timer,
-        pose_slam, 
-        planner
+        # qd_node_timer,
+        # pose_slam, 
+        # planner
         # pose_example,  
         # kalman_node_timer,
         # static_tf,
@@ -177,6 +177,8 @@ def generate_launch_description():
     
     
     
-    ##ESTE LAUNCH VA A QUEAR -> LIDAR+BRINGUP+LOCALIZATION+POSE_SLAM
+    ##ESTE LAUNCH VA A QUEAR -> LIDAR+BRINGUP+LOCALIZATION
     
-    ##EL OTRO LAUNCH CORRERÁ -> ADMIN DE COMPORTAMIENTO+PLANNER+SPLINES+CONTROL
+    ##EL OTRO LAUNCH CORRERÁ -> ADMIN DE COMPORTAMIENTO+SPLINES+CONTROL
+    
+    ##COMPUTADORA -> POSE_SLAM+PLANNER 
